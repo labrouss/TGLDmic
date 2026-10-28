@@ -1,0 +1,22 @@
+name: build-kext
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: MacKernelSDK
+        run: git clone --depth 1 https://github.com/acidanthera/MacKernelSDK
+      - name: Build
+        run: make -C kext SDK=$GITHUB_WORKSPACE/MacKernelSDK
+      - name: Check bundle
+        run: |
+          file kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic
+          otool -l kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic | grep -A2 LC_ | head -40
+          plutil -lint kext/build/TGLDmic.kext/Contents/Info.plist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TGLDmic.kext
+          path: kext/build/TGLDmic.kext.zip

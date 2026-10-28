@@ -1,0 +1,15 @@
+[23:21:32] Copying firmware, topology, NHLT
+'/lib/firmware/intel/sof/sof-tgl.ri' -> '/usb/sof-dmic-capture-20261028-232132/fw/sof-tgl.ri'
+'/lib/firmware/intel/sof/community/sof-tgl.ri' -> '/usb/sof-dmic-capture-20261028-232132/fw/sof-tgl.ri'
+'/lib/firmware/intel/sof-tplg/sof-hda-generic-4ch.tplg' -> '/usb/sof-dmic-capture-20261028-232132/fw/sof-hda-generic-4ch.tplg'
+'/lib/firmware/intel/sof-tplg/sof-hda-generic.tplg' -> '/usb/sof-dmic-capture-20261028-232132/fw/sof-hda-generic.tplg'
+[23:21:32] Stopping PipeWire/PulseAudio
+[23:21:35] Unloading SOF stack
+modprobe: FATAL: Module snd_sof_intel_hda_common is in use.
+[23:21:36] mmiotrace off (enable with MMIOTRACE=1 as a separate run; it can freeze the system)
+[23:21:36] Loading SOF stack
+[23:21:40] DMIC PCMs: 0,6
+[23:21:40] pcm6 supports rate=48000 channels<=4
+[23:21:40] Recording hw:0,6 S32_LE ch=4 rate=48000 for 6 s (speak / tap the mics!)
+Recording WAVE '/usb/sof-dmic-capture-20261028-232132/pcm/dmic-6-S32_LE-4ch-48000.wav' : Signed 32 bit Little Endian, Rate 48000 Hz, Channels 4
+[23:21:47]   arecord rc=0, kernel log saved

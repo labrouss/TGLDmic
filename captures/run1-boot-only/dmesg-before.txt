@@ -1,0 +1,40 @@
+[    0.008163] ACPI: NHLT 0x0000000041F85000 001B27 (v00 HPQOEM TGL-ULT  00000002      01000013)
+[    0.008213] ACPI: Reserving NHLT table memory at [mem 0x41f85000-0x41f86b26]
+[    0.041946] software IO TLB: area num 8.
+[    0.539170] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.567222] PCI-DMA: Using software bounce buffering for IO (SWIOTLB)
+[    0.567223] software IO TLB: mapped [mem 0x0000000025cd0000-0x0000000029cd0000] (64MB)
+[    1.271859] integrity: Loaded X.509 cert 'Microsoft Windows Production PCA 2011: a92902398e16c49778cd90f99e4f9ae17c55af53'
+[    1.271882] integrity: Loaded X.509 cert 'Microsoft Corporation UEFI CA 2011: 13adbf4309bd82709c8cd54f316ed522988a1bd4'
+[    2.933371] ISO 9660 Extensions: Microsoft Joliet Level 3
+[   12.243261] snd_soc_avs 0000:00:1f.3: Digital mics found on Skylake+ platform, using SOF driver
+[   12.334295] sof-audio-pci-intel-tgl 0000:00:1f.3: enabling device (0000 -> 0002)
+[   12.334494] sof-audio-pci-intel-tgl 0000:00:1f.3: DSP detected with PCI class/subclass/prog-if 0x040100
+[   12.334559] sof-audio-pci-intel-tgl 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+[   12.341563] sof-audio-pci-intel-tgl 0000:00:1f.3: use msi interrupt mode
+[   12.412144] sof-audio-pci-intel-tgl 0000:00:1f.3: hda codecs found, mask 5
+[   12.412152] sof-audio-pci-intel-tgl 0000:00:1f.3: using HDA machine driver skl_hda_dsp_generic now
+[   12.412154] sof-audio-pci-intel-tgl 0000:00:1f.3: NHLT device BT(0) detected, ssp_mask 0x4
+[   12.412156] sof-audio-pci-intel-tgl 0000:00:1f.3: BT link detected in NHLT tables: 0x4
+[   12.412159] sof-audio-pci-intel-tgl 0000:00:1f.3: DMICs detected in NHLT tables: 4
+[   12.439168] sof-audio-pci-intel-tgl 0000:00:1f.3: Firmware paths/files for ipc type 0:
+[   12.439173] sof-audio-pci-intel-tgl 0000:00:1f.3:  Firmware file:     intel/sof/sof-tgl.ri
+[   12.439175] sof-audio-pci-intel-tgl 0000:00:1f.3:  Topology file:     intel/sof-tplg/sof-hda-generic-4ch.tplg
+[   12.439573] sof-audio-pci-intel-tgl 0000:00:1f.3: Firmware info: version 2:2:0-57864
+[   12.439575] sof-audio-pci-intel-tgl 0000:00:1f.3: Firmware: ABI 3:22:1 Kernel ABI 3:23:1
+[   12.553323] sof-audio-pci-intel-tgl 0000:00:1f.3: Firmware info: version 2:2:0-57864
+[   12.553330] sof-audio-pci-intel-tgl 0000:00:1f.3: Firmware: ABI 3:22:1 Kernel ABI 3:23:1
+[   12.911216] sof-audio-pci-intel-tgl 0000:00:1f.3: loading topology: intel/sof-tplg/sof-hda-generic-4ch.tplg
+[   12.911294] sof-audio-pci-intel-tgl 0000:00:1f.3: Topology: ABI 3:22:1 Kernel ABI 3:23:1
+[   12.935867] snd_hda_codec_alc269 ehdaudio0D0: ALC285: picked fixup  for codec SSID 103c:8ab9
+[   12.959098] snd_hda_codec_alc269 ehdaudio0D0: autoconfig for ALC285: line_outs=1 (0x14/0x0/0x0/0x0/0x0) type:speaker
+[   12.959102] snd_hda_codec_alc269 ehdaudio0D0:    speaker_outs=0 (0x0/0x0/0x0/0x0/0x0)
+[   12.959103] snd_hda_codec_alc269 ehdaudio0D0:    hp_outs=1 (0x21/0x0/0x0/0x0/0x0)
+[   12.959104] snd_hda_codec_alc269 ehdaudio0D0:    mono: mono_out=0x0
+[   12.959105] snd_hda_codec_alc269 ehdaudio0D0:    inputs:
+[   12.959106] snd_hda_codec_alc269 ehdaudio0D0:      Mic=0x19
+[   13.631113] input: sof-hda-dsp Mic as /devices/pci0000:00/0000:00:1f.3/skl_hda_dsp_generic/sound/card0/input21
+[   13.631163] input: sof-hda-dsp Headphone as /devices/pci0000:00/0000:00:1f.3/skl_hda_dsp_generic/sound/card0/input22
+[   13.631213] input: sof-hda-dsp HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:1f.3/skl_hda_dsp_generic/sound/card0/input23
+[   13.631255] input: sof-hda-dsp HDMI/DP,pcm=4 as /devices/pci0000:00/0000:00:1f.3/skl_hda_dsp_generic/sound/card0/input24
+[   13.631307] input: sof-hda-dsp HDMI/DP,pcm=5 as /devices/pci0000:00/0000:00:1f.3/skl_hda_dsp_generic/sound/card0/input25
