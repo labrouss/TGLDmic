@@ -14,7 +14,7 @@ For development and bug reports. Normal users only need `-tgldmic` (see [INSTALL
 | `-tgldmic` | 4 – service | Normal use: microphone exposed to Core Audio |
 | `-tgldmicoff` | – | Disables the kext completely |
 | `tgldmicdma=2` | – | Force physical DMA addresses (testing only; default uses the device or system IOMMU mapper) |
-| `tgldmicsnoop=0` | – | Leave the controller's no-snoop DMA bit as found (default: clear it so DMA sees CPU-written data) |
+| `tgldmicsnoop=0` / `=2` | – | DEVC no-snoop enable (PCI 0x78 bit 11, required by the DSP ROM): default sets it while the DSP is powered and restores it after; `0` never touches it, `2` leaves it set |
 | `tgldmicpm=1` / `=0` | – | Force / never join the HDA driver's power tree (default: only under AppleHDA) |
 
 `TGLDmicPhase` in ioreg shows the active mode. The `Log` property holds the kext's last 128 log lines.

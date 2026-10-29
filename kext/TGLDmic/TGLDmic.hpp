@@ -80,8 +80,9 @@ private:
 
     uint32_t sdOffset(uint32_t globalIndex) { return 0x80 + 0x20 * globalIndex; }
     bool streamStopReset(uint32_t sd);
-    void ensureSnoop(const char *who);
-    bool snoopLogged {false};
+    void setNoSnoop(bool on);
+    uint16_t savedDevc {0};
+    bool devcChanged {false};
     uint32_t capRetries {0};
     bool regSnapTaken {false};
     void snapshotRegs();

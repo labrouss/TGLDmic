@@ -85,20 +85,27 @@ void TGLDmic::gating(bool enable) {
     }
 }
 
-// PCI DEVC (0x78) bit 11 NSNPEN: when set, the controller may DMA without snooping CPU caches
-// and reads stale memory. Linux snd-hda-intel / SOF clear it; AppleHDA appears to, HDAUniversal may not.
-void TGLDmic::ensureSnoop(const char *who) {
-    uint16_t devc = pci->configRead16(PCI_DEVC);
-    int allow = 1;
-    PE_parse_boot_argn("tgldmicsnoop", &allow, sizeof(allow));
-    if ((devc & PCI_DEVC_NSNPEN) && allow) {
-        pci->configWrite16(PCI_DEVC, devc & ~PCI_DEVC_NSNPEN);
-        LOG("%s: DEVC 0x%04x: no-snoop DMA was enabled - disabled (DEVC now 0x%04x)", who, devc,
-            pci->configRead16(PCI_DEVC));
-    } else if (!snoopLogged) {
-        LOG("%s: DEVC 0x%04x (no-snoop %s)", who, devc, (devc & PCI_DEVC_NSNPEN) ? "ON, left by tgldmicsnoop=0" : "off");
+// PCI DEVC (0x78) bit 11 NSNPEN "no-snoop enable". The DSP ROM needs it SET to load firmware:
+// Ventura/AppleHDA leaves DEVC 0x2800 and the boot works; with the bit cleared (HDAUniversal on
+// Tahoe, or v0.4.8-0.4.10 which cleared it) the ROM halts right after the FW manifest (FSR 0x80000003).
+// Set it for the boot and restore the HDA driver's value afterwards.
+// tgldmicsnoop=0: never touch DEVC; =2: set it and leave it set.
+void TGLDmic::setNoSnoop(bool on) {
+    int mode = 1;
+    PE_parse_boot_argn("tgldmicsnoop", &mode, sizeof(mode));
+    if (mode == 0) { if (on) LOG("boot: DEVC 0x%04x left as is (tgldmicsnoop=0)", pci->configRead16(PCI_DEVC)); return; }
+    if (on) {
+        savedDevc = pci->configRead16(PCI_DEVC);
+        devcChanged = !(savedDevc & PCI_DEVC_NSNPEN);
+        if (devcChanged) pci->configWrite16(PCI_DEVC, savedDevc | PCI_DEVC_NSNPEN);
+        LOG("boot: DEVC 0x%04x -> 0x%04x (no-snoop enable %s)", savedDevc, pci->configRead16(PCI_DEVC),
+            devcChanged ? "set for the boot" : "already set");
+    } else if (devcChanged && mode != 2) {
+        uint16_t cur = pci->configRead16(PCI_DEVC);
+        pci->configWrite16(PCI_DEVC, (cur & ~PCI_DEVC_NSNPEN) | (savedDevc & PCI_DEVC_NSNPEN));
+        LOG("boot: DEVC restored to 0x%04x", pci->configRead16(PCI_DEVC));
+        devcChanged = false;
     }
-    snoopLogged = true;
 }
 
 // "PreBootRegs": PCI config 0x00-0xFF, HDA 0x000-0x0FF (globals), PP/SPB/ML caps (64 B each) and the
@@ -212,6 +219,7 @@ void TGLDmic::corePowerDown() {
     uint32_t v = 0;
     pollDsp(DSP::ADSPCS, CPA(CORE0), 0, 50000, &v);
     LOG("boot: core0 powered down, ADSPCS 0x%08x", v);
+    setNoSnoop(false);                  // DSP off: give the HDA driver its DEVC back
 }
 
 bool TGLDmic::bootDsp() {
@@ -260,13 +268,13 @@ bool TGLDmic::bootDsp() {
         pci->setBusMasterEnable(true); forcedBme = true;
         LOG("boot: bus master was OFF (CMD 0x%04x) - enabled for the boot", cmd);
     }
-    ensureSnoop("boot");
     uint8_t d0i3 = r8(VS_D0I3C);
     if (d0i3 & D0I3C_I3) {
         w8(VS_D0I3C, d0i3 & ~D0I3C_I3);
         LOG("boot: controller was in D0i3 (D0I3C 0x%02x) - cleared", d0i3);
     }
     if (!regSnapTaken) { snapshotRegs(); regSnapTaken = true; }   // state left by the HDA driver, for OS diffs
+    setNoSnoop(true);
     gating(false);
     bool ok = false;
     uint32_t v = 0;

@@ -99,7 +99,6 @@ bool TGLDmic::prepareCaptureStream(uint32_t idx, uint32_t tag) {
         uint64_t a = ringBuf.iova + i * PERIOD_BYTES;
         bdl[i] = { (uint32_t)a, (uint32_t)(a >> 32), PERIOD_BYTES, 0 };
     }
-    ensureSnoop("cap");
     ptBuf.sync(); capBdl.sync();
 
     w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) | (1u << idx));   // decouple -> DSP
