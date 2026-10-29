@@ -1,14 +1,11 @@
 # TGLDmic 0.4.3: internal microphone for the HP EliteBook 840 G8 (macOS)
 
-Contents of this package:
+Each build produces two files:
 
 | File | What |
 |---|---|
-| `TGLDmic.kext` | Kernel driver: boots the SOF firmware on the audio DSP and runs the DMIC pipeline |
-| `TGLDmic.driver` | Core Audio plug-in: shows "Internal Microphone (TGLDmic)" as an input device |
-| `tgldmic-probe` | Command-line test: talks to the kext directly, no Core Audio involved |
-| `install-hal.sh` / `uninstall-hal.sh` | Install/remove the Core Audio plug-in |
-| `snapshot-to-wav.py` | For the older `-tgldmiccap` boot test |
+| `TGLDmic-<version>-kext.zip` | `TGLDmic.kext` (kernel driver, goes into OpenCore) + `tgldmic-probe`, `list-audio-devices.py`, `uninstall-hal.sh` |
+| `TGLDmic-<version>.pkg` | Installer for the Core Audio plug-in `TGLDmic.driver` ("Internal Microphone (TGLDmic)") |
 
 ## 1. Kext (OpenCore)
 1. Replace `EFI/OC/Kexts/TGLDmic.kext` with this version (keep it after AppleALC in `Kernel > Add`).
@@ -25,7 +22,12 @@ Expect `start: 0x0`, about 48000 frames/s and levels around -60 dBFS when quiet,
 when you talk. `probe.wav` is the raw 4-channel recording.
 
 ## 3. Install the Core Audio plug-in
-    ./install-hal.sh
+Double-click `TGLDmic-<version>.pkg`. It is not notarized: if macOS blocks it, right-click → Open,
+or allow it under System Settings → Privacy & Security. Command line alternative:
+
+    sudo installer -pkg TGLDmic-<version>.pkg -target /
+
+The installer replaces any previous `TGLDmic.driver` and restarts Core Audio.
 
 Then go to **System Settings → Sound → Input**, pick **Internal Microphone (TGLDmic)** and talk:
 the input level meter should move. QuickTime → File → New Audio Recording can record it.
@@ -45,5 +47,7 @@ the input level meter should move. QuickTime → File → New Audio Recording ca
 * Tested on Ventura only. Sequoia and Tahoe (HDA-Universal) still need the phase 1 stream check.
 
 ## Remove
-    ./uninstall-hal.sh   # and drop -tgldmic from boot-args
+    ./uninstall-hal.sh                          # from the kext zip; removes the plug-in
+    sudo pkgutil --forget com.labrouss.TGLDmic.driver.pkg
+    # and drop -tgldmic from boot-args / TGLDmic.kext from OpenCore
 * Core Audio IO buffers above ~2048 frames could read outside the 4096-frame ring; normal apps use 512–1024.

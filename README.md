@@ -11,6 +11,7 @@ behind the Smart Sound DSP). Runs next to AppleHDA/AppleALC, which keep speakers
 | `captures/` | Reference captures (firmware boot, pipeline setup, test WAV) |
 | `kext/` | The kext (`make SDK=...`, or GitHub Actions) |
 | `hal/` | Core Audio HAL plug-in `TGLDmic.driver`, `tgldmic-probe`, install scripts |
+| `pkg/` | Installer scripts for `TGLDmic-<version>.pkg` |
 | `docs/INSTALL.md` | End-user install and test steps (shipped in the build artifact) |
 
 ## Phase 1: read-only observer (default)
@@ -45,3 +46,8 @@ The kext boots the DSP 10 s after the controller is up and keeps it running. `TG
 exposes start/stop, the DMA position and the 64 KB ring (mapped read-only). The HAL plug-in
 `TGLDmic.driver` turns that into "Internal Microphone (TGLDmic)": stereo Float32 48 kHz, with zero
 time stamps from the DMA position and a 0–36 dB input gain. See `docs/INSTALL.md`.
+
+## CI artifacts
+Every push builds `TGLDmic-<version>-kext.zip` (kext + tools) and `TGLDmic-<version>.pkg`
+(Core Audio plug-in installer) as separate artifacts. Pushing a tag `v*` (e.g. `git tag v0.4.3 && git push --tags`)
+also attaches both files to a GitHub Release.

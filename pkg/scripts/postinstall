@@ -1,0 +1,5 @@
+#!/bin/bash
+# Reload Core Audio so the plug-in is picked up without a reboot.
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/HAL/TGLDmic.driver" 2>/dev/null || true
+killall coreaudiod 2>/dev/null || launchctl kickstart -k system/com.apple.audio.coreaudiod 2>/dev/null || true
+exit 0

@@ -1,7 +1,11 @@
 name: build
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   workflow_dispatch:
+permissions:
+  contents: write          # needed only for publishing releases on v* tags
 jobs:
   build:
     runs-on: macos-14
@@ -19,15 +23,49 @@ jobs:
           plutil -lint kext/build/TGLDmic.kext/Contents/Info.plist hal/build/TGLDmic.driver/Contents/Info.plist
           nm -gU hal/build/TGLDmic.driver/Contents/MacOS/TGLDmic | grep TGLDmic_Create
           nm kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic | grep -c TGLDmicUserClient
-      - name: Package
+
+      - name: Version
+        id: ver
+        run: echo "v=$(plutil -extract CFBundleShortVersionString raw kext/TGLDmic/Info.plist)" >> "$GITHUB_OUTPUT"
+
+      - name: Kext zip
         run: |
-          VER=$(plutil -extract CFBundleShortVersionString raw kext/TGLDmic/Info.plist)
-          mkdir -p dist/TGLDmic-$VER
-          cp -R kext/build/TGLDmic.kext hal/build/TGLDmic.driver hal/build/tgldmic-probe dist/TGLDmic-$VER/
-          cp hal/install-hal.sh hal/uninstall-hal.sh tools/snapshot-to-wav.py tools/list-audio-devices.py dist/TGLDmic-$VER/
-          cp docs/INSTALL.md dist/TGLDmic-$VER/README.md
-          cd dist && ditto -c -k --keepParent TGLDmic-$VER TGLDmic-$VER.zip
+          D=dist/TGLDmic-${{ steps.ver.outputs.v }}-kext
+          mkdir -p $D
+          cp -R kext/build/TGLDmic.kext hal/build/tgldmic-probe $D/
+          cp tools/list-audio-devices.py tools/snapshot-to-wav.py hal/uninstall-hal.sh $D/
+          cp docs/KEXT-README.md $D/README.md
+          cp docs/INSTALL.md $D/INSTALL.md
+          (cd dist && ditto -c -k --keepParent TGLDmic-${{ steps.ver.outputs.v }}-kext TGLDmic-${{ steps.ver.outputs.v }}-kext.zip)
+
+      - name: Driver installer package
+        run: |
+          V=${{ steps.ver.outputs.v }}
+          ROOT=pkgroot
+          mkdir -p "$ROOT/Library/Audio/Plug-Ins/HAL"
+          cp -R hal/build/TGLDmic.driver "$ROOT/Library/Audio/Plug-Ins/HAL/"
+          # keep the bundle at its install path (no relocation to another copy with the same bundle ID)
+          pkgbuild --analyze --root "$ROOT" component.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO component.plist
+          plutil -replace 0.BundleOverwriteAction -string upgrade component.plist
+          pkgbuild --root "$ROOT" --component-plist component.plist --scripts pkg/scripts \
+                   --identifier com.labrouss.TGLDmic.driver.pkg --version "$V" --install-location / \
+                   "dist/TGLDmic-$V.pkg"
+          pkgutil --payload-files "dist/TGLDmic-$V.pkg"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: TGLDmic
-          path: dist/*.zip
+          name: TGLDmic-${{ steps.ver.outputs.v }}-kext
+          path: dist/TGLDmic-${{ steps.ver.outputs.v }}-kext.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TGLDmic-${{ steps.ver.outputs.v }}-pkg
+          path: dist/TGLDmic-${{ steps.ver.outputs.v }}.pkg
+
+      - name: GitHub Release (on v* tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/TGLDmic-${{ steps.ver.outputs.v }}-kext.zip
+            dist/TGLDmic-${{ steps.ver.outputs.v }}.pkg

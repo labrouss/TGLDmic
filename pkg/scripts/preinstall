@@ -1,0 +1,4 @@
+#!/bin/bash
+# Remove any previous TGLDmic.driver so the new bundle replaces it cleanly.
+rm -rf "/Library/Audio/Plug-Ins/HAL/TGLDmic.driver"
+exit 0
