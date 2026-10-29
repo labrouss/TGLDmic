@@ -28,8 +28,9 @@ Test speakers/headset before and after the attempt.
 
 ## Phase 3: DMIC capture test (opt-in)
 Boot arg `-tgldmiccap` (implies `-tgldmicboot`): after FW_READY, TGLDmic replays the 20 Linux IPC3
-setup messages for pipeline 10, runs input stream 6 (tag 7) decoupled into the DSP, captures 1 s of
-4-ch 48 kHz S32_LE audio, then tears everything down and powers the DSP off.
+setup messages for pipeline 10, runs input stream 6 (tag 7) decoupled into the DSP, records 8 s of 4-ch 48 kHz S32_LE audio
+(published: the loudest 1 s as `CaptureSnapshot`, and a 100 ms loudness envelope as `CaptureEnvelope`),
+then tears everything down and powers the DSP off.
 
     ioreg -a -l -w0 -c TGLDmic > tgldmic.plist
     python3 tools/snapshot-to-wav.py tgldmic.plist dmic.wav     # WAV + per-channel levels

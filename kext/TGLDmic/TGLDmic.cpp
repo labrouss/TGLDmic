@@ -78,7 +78,7 @@ bool TGLDmic::start(IOService *provider) {
     if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.3.1 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.3.2 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
     if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready", captureRequested ? " + capture" : "", bootDelaySec);
@@ -177,6 +177,7 @@ void TGLDmic::publish() {
             if (auto d = OSData::withBytes(chMeanAbs, sizeof(chMeanAbs))) { setProperty("CaptureMeanAbs", d); d->release(); }
         }
         if (capSnap && capSnap->getLength()) setProperty("CaptureSnapshot", capSnap);
+        if (envLen) if (auto d = OSData::withBytes(env, envLen * 4)) { setProperty("CaptureEnvelope", d); d->release(); }
     }
     if (logRing) { if (auto copy = OSArray::withArray(logRing)) { setProperty("Log", copy); copy->release(); } }
     if (ready && ppOffset && hda) setProperty("PPCTL", r32(ppOffset + HDA::PP_PPCTL), 32);

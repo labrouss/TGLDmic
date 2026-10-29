@@ -87,6 +87,9 @@ private:
     OSData *capSnap {nullptr};         // 1 s of raw S32_LE 4ch 48 kHz audio, published as "CaptureSnapshot"
     uint32_t chPeak[4] {}, chMeanAbs[4] {};
     uint64_t capBytes {0};
+    static constexpr uint32_t kEnvMax = 100;
+    uint32_t env[kEnvMax] {};        // per-100 ms mean |x| of ch0
+    uint32_t envLen {0};
 
     bool ipcSend(const uint32_t *msg, uint32_t words, uint32_t *reply = nullptr, uint32_t replyWords = 0);
     void ackDspNotification();

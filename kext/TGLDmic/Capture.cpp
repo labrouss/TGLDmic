@@ -17,6 +17,7 @@ constexpr uint32_t RING_BYTES = 0x10000, PERIOD_BYTES = 0x4000, PAGES = RING_BYT
 constexpr uint16_t FMT_48K_32BIT_4CH = 0x0043;       // BASE 48k, BITS=100 (32), CHAN=3
 constexpr uint32_t FRAME_BYTES = 16;                  // 4 ch x 4 bytes
 constexpr uint32_t SNAPSHOT_BYTES = 48000 * FRAME_BYTES; // 1 s
+constexpr uint32_t CAPTURE_SECONDS = 8, ENV_STEP_BYTES = 4800 * FRAME_BYTES; // envelope: 100 ms steps
 constexpr uint32_t CAP_IN_INDEX = 6, CAP_TAG = 7;     // spare input descriptor (AppleHDA uses in0/in1)
 }
 
@@ -138,34 +139,57 @@ bool TGLDmic::captureTest() {
         if (!replay(kIpc_start, COUNT(kIpc_start), "start")) break;
         started = true;
 
-        // Stream for ~1.3 s: skip 0.25 s, then copy 1 s out of the ring as the DMA position advances.
+        // Stream CAPTURE_SECONDS s (after 0.25 s warm-up). Keep the loudest 1-s block as the snapshot
+        // and a per-100 ms mean |x| envelope (ch0) for the whole run.
+        uint8_t *block = static_cast<uint8_t *>(IOMalloc(SNAPSHOT_BYTES));
+        if (!block) { capFail("block alloc", 0); break; }
+        capSnap->appendByte(0, SNAPSHOT_BYTES);                 // fixed-size, overwritten with the loudest block
+        uint8_t *snapBytes = static_cast<uint8_t *>(const_cast<void *>(capSnap->getBytesNoCopy()));
+        uint32_t blockLen = 0;
+        uint64_t bestEnergy = 0, blockEnergy = 0, envAcc = 0, total = 0;
+        uint32_t envFrames = 0, envCount = 0, blocks = 0, bestBlock = 0;
         uint32_t readPos = r32(dpib) % RING_BYTES, skip = 12000 * FRAME_BYTES, waited = 0;
-        uint64_t total = 0;
-        while (capSnap->getLength() < SNAPSHOT_BYTES && waited < 3000) {
+        const uint32_t limitMs = CAPTURE_SECONDS * 1000 + 2000;
+        while (blocks < CAPTURE_SECONDS && waited < limitMs) {
             IOSleep(10); waited += 10;
             uint32_t pos = r32(dpib) % RING_BYTES;
             uint32_t avail = (pos + RING_BYTES - readPos) % RING_BYTES;
             avail -= avail % FRAME_BYTES;
-            if (!avail) continue;
             total += avail;
-            while (avail) {
+            while (avail && blocks < CAPTURE_SECONDS) {
                 uint32_t chunk = min(avail, RING_BYTES - readPos);
-                if (skip) {
-                    uint32_t s = min(chunk, skip); skip -= s; readPos = (readPos + s) % RING_BYTES; avail -= s; continue;
+                if (skip) { uint32_t s = min(chunk, skip); skip -= s; readPos = (readPos + s) % RING_BYTES; avail -= s; continue; }
+                uint32_t take = min(chunk, SNAPSHOT_BYTES - blockLen);
+                const int32_t *smp = reinterpret_cast<const int32_t *>(ringBuf.virt + readPos);
+                for (uint32_t f = 0; f < take / FRAME_BYTES; f++) {
+                    int64_t x = smp[f * 4]; uint64_t a = (uint64_t)(x < 0 ? -x : x);
+                    blockEnergy += a >> 8; envAcc += a;
+                    if (++envFrames == ENV_STEP_BYTES / FRAME_BYTES) {
+                        if (envCount < kEnvMax) env[envCount++] = (uint32_t)(envAcc / envFrames);
+                        envAcc = 0; envFrames = 0;
+                    }
                 }
-                uint32_t room = SNAPSHOT_BYTES - capSnap->getLength();
-                uint32_t take = min(chunk, room);
-                if (take) capSnap->appendBytes(ringBuf.virt + readPos, take);
-                readPos = (readPos + chunk) % RING_BYTES; avail -= chunk;
+                memcpy(block + blockLen, ringBuf.virt + readPos, take);
+                blockLen += take;
+                readPos = (readPos + take) % RING_BYTES; avail -= take;
+                if (blockLen == SNAPSHOT_BYTES) {
+                    if (blockEnergy > bestEnergy || blocks == 0) {
+                        bestEnergy = blockEnergy; bestBlock = blocks;
+                        memcpy(snapBytes, block, SNAPSHOT_BYTES);
+                    }
+                    blocks++; blockEnergy = 0; blockLen = 0;
+                }
             }
-            if (waited % 250 == 0)
-                LOG("cap: t=%ums DPIB %u LPIB %u CTL 0x%08x copied %u B", waited, r32(dpib), r32(sd + HDA::SD_LPIB),
-                    r32(sd), capSnap->getLength());
         }
+        IOFree(block, SNAPSHOT_BYTES);
+        envLen = envCount;
         capBytes = total;
-        LOG("cap: streamed %llu bytes in %u ms (expect ~768 B/ms), snapshot %u B", (unsigned long long)total, waited,
-            capSnap->getLength());
-        if (capSnap->getLength() < SNAPSHOT_BYTES / 2) { capFail("DMA position did not advance", r32(dpib)); break; }
+        LOG("cap: streamed %llu bytes in %u ms (expect ~768 B/ms), %u x 1 s blocks, loudest = block %u",
+            (unsigned long long)total, waited, blocks, bestBlock);
+        for (uint32_t i = 0; i + 10 <= envCount; i += 10)
+            LOG("cap: env %us: %u %u %u %u %u %u %u %u %u %u", i / 10, env[i], env[i+1], env[i+2], env[i+3], env[i+4],
+                env[i+5], env[i+6], env[i+7], env[i+8], env[i+9]);
+        if (blocks < 1) { capFail("DMA position did not advance", r32(dpib)); break; }
 
         // per-channel peak and mean |x| over the snapshot (S32_LE, 4 ch interleaved)
         auto s = static_cast<const int32_t *>(capSnap->getBytesNoCopy());
