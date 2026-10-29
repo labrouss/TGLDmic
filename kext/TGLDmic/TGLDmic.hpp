@@ -4,6 +4,7 @@
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOMemoryDescriptor.h>
+#include "DmaBuffer.hpp"
 
 // Phase 1: read-only observer. Matches the HDA controller next to AppleHDA (own
 // IOMatchCategory, provider is never opened), maps BAR0 and records which stream
@@ -49,4 +50,30 @@ private:
     void snapshot(bool verbose);
     void publish();
     static void timerFired(OSObject *owner, IOTimerEventSource *sender);
+
+    // ---- Phase 2: DSP boot (only with -tgldmicboot) ----
+    bool bootRequested {false};
+    bool keepRunning {false};
+    uint32_t bootState {0};           // 0 idle, 1 done ok, 2 failed
+    char bootResult[96] {};
+    uint32_t savedCgctl {0}, savedPgctl {0}, savedEm2 {0};
+    DmaBuffer clBuf, bdlBuf;
+
+    void w32(uint32_t off, uint32_t v) { *reinterpret_cast<volatile uint32_t *>(hda + off) = v; }
+    void w16(uint32_t off, uint16_t v) { *reinterpret_cast<volatile uint16_t *>(hda + off) = v; }
+    void w8(uint32_t off, uint8_t v)   { hda[off] = v; }
+    void dw32(uint32_t off, uint32_t v) { *reinterpret_cast<volatile uint32_t *>(dsp + off) = v; }
+    bool pollHda(uint32_t off, uint32_t mask, uint32_t want, uint32_t timeoutUs, uint32_t *last = nullptr);
+    bool pollDsp(uint32_t off, uint32_t mask, uint32_t want, uint32_t timeoutUs, uint32_t *last = nullptr);
+
+    uint32_t sdOffset(uint32_t globalIndex) { return 0x80 + 0x20 * globalIndex; }
+    bool streamStopReset(uint32_t sd);
+    bool prepareLoaderStream(uint32_t globalIndex, uint32_t tag, size_t fwBytes);
+    void releaseLoaderStream(uint32_t globalIndex);
+    void gating(bool enable);
+    bool corePowerUp();
+    bool coreRun();
+    void corePowerDown();
+    bool bootDsp();
+    void fail(const char *what, uint32_t value);
 };

@@ -72,9 +72,12 @@ bool TGLDmic::start(IOService *provider) {
     if (!pci) return false;
     pci->retain();
     readDsp = bootArg("-tgldmicdsp");
+    bootRequested = bootArg("-tgldmicboot");
+    keepRunning = bootArg("-tgldmickeep");
 
-    LOG("phase 1 observer v0.1.1 on %s (Darwin %d.%d), dsp-reads=%s",
-        provider->getName(), version_major, version_minor, readDsp ? "on" : "off");
+    LOG("TGLDmic v0.2.0 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+        provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
+        bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
 
     bar0 = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
     if (!bar0) { LOG("cannot map BAR0"); return false; }
@@ -94,9 +97,8 @@ bool TGLDmic::start(IOService *provider) {
     LOG("at start: PCI CMD 0x%04x, D0=%d", pci->configRead16(kIOPCIConfigCommand), inD0());
     if (!tryInit()) LOG("controller not decoded yet (AppleHDA not started?) - retrying from timer");
 
-    workLoop = getWorkLoop();
+    workLoop = IOWorkLoop::workLoop();      // own loop: boot polling must not block the provider's
     if (workLoop) {
-        workLoop->retain();
         timer = IOTimerEventSource::timerEventSource(this, timerFired);
         if (timer && workLoop->addEventSource(timer) == kIOReturnSuccess)
             timer->setTimeoutMS(kPollMs);
@@ -151,7 +153,7 @@ void TGLDmic::snapshot(bool verbose) {
 }
 
 void TGLDmic::publish() {
-    setProperty("TGLDmicPhase", 1ULL, 32);
+    setProperty("TGLDmicPhase", bootRequested ? 2ULL : 1ULL, 32);
     setProperty("StreamsIn", numIn, 32);
     setProperty("StreamsOut", numOut, 32);
     setProperty("UsedStreamMask", everRunning, 32);
@@ -160,6 +162,8 @@ void TGLDmic::publish() {
     setProperty("Samples", samples, 32);
     setProperty("Ready", ready);
     setProperty("BadReads", badReads, 32);
+    setProperty("BootState", bootState, 32);
+    if (bootResult[0]) setProperty("BootResult", bootResult);
     if (logRing) { if (auto copy = OSArray::withArray(logRing)) { setProperty("Log", copy); copy->release(); } }
     if (ready && ppOffset && hda) setProperty("PPCTL", r32(ppOffset + HDA::PP_PPCTL), 32);
     if (ready && dsp) setProperty("ADSPCS", d32(DSP::ADSPCS), 32);
@@ -177,6 +181,11 @@ void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     if (!self) return;
     if (self->tryInit() && self->memoryDecoded() && self->inD0())
         self->snapshot(false);
+    // Phase 2: one boot attempt ~20 s after the controller became usable (AppleHDA settled)
+    if (self->bootRequested && self->ready && self->bootState == 0 && self->samples >= 10) {
+        self->bootDsp();
+        self->publish();
+    }
     self->samples++;
     self->publish();
     if (self->samples < kPollCount) sender->setTimeoutMS(kPollMs);
@@ -184,6 +193,7 @@ void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
 }
 
 void TGLDmic::stop(IOService *provider) {
+    if (bootState == 1 && keepRunning) corePowerDown();
     if (timer) {
         timer->cancelTimeout();
         if (workLoop) workLoop->removeEventSource(timer);

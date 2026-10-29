@@ -1,6 +1,7 @@
 # Build TGLDmic.kext on macOS (Xcode CLT). make SDK=/path/to/MacKernelSDK
 SDK     ?= $(CURDIR)/../MacKernelSDK
-SRC      = TGLDmic/TGLDmic.cpp
+FWIMAGE  = ../captures/run3-pcm6/fw/sof-tgl.ri
+OBJS     = build/TGLDmic.o build/DspBoot.o build/Firmware.o build/kmod_info.o
 OUT      = build/TGLDmic.kext
 ARCH     = -arch x86_64 -mmacosx-version-min=10.15
 CXXFLAGS = $(ARCH) -std=gnu++17 -O2 -Wall -Wno-unused-private-field \
@@ -16,13 +17,18 @@ all: $(OUT)
 build/%.o: TGLDmic/%.cpp TGLDmic/*.hpp
 	@mkdir -p build
 	clang++ $(CXXFLAGS) -c $< -o $@
+build/Firmware.c: $(FWIMAGE) ../tools/gen-fw.py
+	@mkdir -p build
+	python3 ../tools/gen-fw.py $(FWIMAGE) $@
+build/Firmware.o: build/Firmware.c
+	clang $(CFLAGS) -c $< -o $@
 build/kmod_info.o: TGLDmic/kmod_info.c
 	@mkdir -p build
 	clang $(CFLAGS) -c $< -o $@
 
-$(OUT): build/TGLDmic.o build/kmod_info.o TGLDmic/Info.plist
+$(OUT): $(OBJS) TGLDmic/Info.plist
 	rm -rf $(OUT) && mkdir -p $(OUT)/Contents/MacOS
-	clang++ $(LDFLAGS) build/TGLDmic.o build/kmod_info.o -o $(OUT)/Contents/MacOS/TGLDmic
+	clang++ $(LDFLAGS) $(OBJS) -o $(OUT)/Contents/MacOS/TGLDmic
 	cp TGLDmic/Info.plist $(OUT)/Contents/Info.plist
 	codesign -f -s - $(OUT) || true
 	cd build && ditto -c -k --keepParent TGLDmic.kext TGLDmic.kext.zip
