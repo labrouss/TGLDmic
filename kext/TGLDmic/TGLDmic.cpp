@@ -74,11 +74,14 @@ bool TGLDmic::start(IOService *provider) {
     readDsp = bootArg("-tgldmicdsp");
     captureRequested = bootArg("-tgldmiccap");
     bootRequested = bootArg("-tgldmicboot") || captureRequested;
+    uint32_t delay = 0;
+    if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.3.0 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.3.1 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
+    if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready", captureRequested ? " + capture" : "", bootDelaySec);
 
     bar0 = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
     if (!bar0) { LOG("cannot map BAR0"); return false; }
@@ -193,7 +196,7 @@ void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     if (self->tryInit() && self->memoryDecoded() && self->inD0())
         self->snapshot(false);
     // Phase 2: one boot attempt ~20 s after the controller became usable (AppleHDA settled)
-    if (self->bootRequested && self->ready && self->bootState == 0 && self->samples >= 10) {
+    if (self->bootRequested && self->ready && self->bootState == 0 && self->samples * (kPollMs / 1000) >= self->bootDelaySec) {
         self->bootDsp();
         self->publish();
     }

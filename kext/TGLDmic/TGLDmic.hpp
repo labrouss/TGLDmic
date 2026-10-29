@@ -80,6 +80,7 @@ private:
 
     // ---- Phase 3: DMIC capture test (only with -tgldmiccap, implies boot) ----
     bool captureRequested {false};
+    uint32_t bootDelaySec {20};      // boot arg tgldmicdelay=<s>, 10..170
     uint32_t captureState {0};        // 0 idle, 1 ok, 2 failed
     char captureResult[96] {};
     DmaBuffer ringBuf, ptBuf, capBdl;

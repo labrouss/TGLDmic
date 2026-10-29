@@ -34,4 +34,5 @@ setup messages for pipeline 10, runs input stream 6 (tag 7) decoupled into the D
     ioreg -a -l -w0 -c TGLDmic > tgldmic.plist
     python3 tools/snapshot-to-wav.py tgldmic.plist dmic.wav     # WAV + per-channel levels
 
-Talk near the laptop during the first ~25 s after login.
+Talk near the laptop when it runs: by default 20 s after the controller is ready, or set
+`tgldmicdelay=<seconds>` (10-170), e.g. `tgldmicdelay=90` to record after you have logged in.

@@ -44,10 +44,10 @@ which is a separate, later code path.
 ## Phases
 | # | Goal | Exit criterion |
 |---|------|----------------|
-| 0 | Linux capture: fw, tplg, NHLT, IPC3 payloads, mmiotrace, register dumps, test WAV | WAV has signal on 4 channels; IPC sequence decoded |
-| 1 | Read-only probe kext next to AppleHDA | Logs GCAP/PPCAP/ADSPCS, no audio regression |
-| 2 | DSP boot on macOS | FW_READY received; speakers still work |
-| 3 | IPC replay + decoupled input DMA | PCM samples with non-zero RMS in a debug buffer |
+| 0 ✅ | Linux capture: fw, tplg, NHLT, IPC3 payloads, mmiotrace, register dumps, test WAV | WAV has signal on 4 channels; IPC sequence decoded |
+| 1 ✅ | Read-only probe kext next to AppleHDA | Logs GCAP/PPCAP/ADSPCS, no audio regression |
+| 2 ✅ | DSP boot on macOS | FW_READY received; speakers still work |
+| 3 ✅ | IPC replay + decoupled input DMA | PCM samples with non-zero RMS in a debug buffer |
 | 4 | AudioServerPlugIn (user-space Core Audio driver) fed by the kext | Mic visible in Sound settings, records in QuickTime |
 | 5 | Robustness | Survives AppleHDA reset, sleep/wake, gain control |
 
@@ -85,3 +85,10 @@ PCM 7 "DMIC16kHz" (pipeline 11, DMIC1) is the same chain at 16 kHz; skipped.
 Expected IPC3 replay: TPLG_PIPE_NEW, 3× TPLG_BUFFER_NEW, 3× TPLG_COMP_NEW (dai, eq_iir, volume)
 + host comp, TPLG_COMP_CONNECT×6, DAI_CONFIG (DMIC, NHLT-derived PDM params),
 TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_START.
+
+## Status (2026-10-29, Ventura 13.6, v0.3.0)
+* Phase 2: SOF v2.2 (Intel-signed) boots next to AppleHDA in ~17 ms. Needed vs. a naive port:
+  SPIB enabled on the loader stream, and the production-signed image (community build -> ROM error 44).
+* Phase 3: all 20 replayed IPC3 messages accepted; in6/tag 7 decoupled capture runs at the expected
+  768 B/ms; samples match the Linux noise floor (-60 dBFS, ch2 == ch3 as on Linux).
+  Reference: `captures/macos-v0.3.0/`.
