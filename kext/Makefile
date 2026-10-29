@@ -1,7 +1,7 @@
 # Build TGLDmic.kext on macOS (Xcode CLT). make SDK=/path/to/MacKernelSDK
 SDK     ?= $(CURDIR)/../MacKernelSDK
 # Intel production-signed (the CSE rejects community-signed builds: ROM error 44)
-FWIMAGE  = ../captures/run3-pcm6/fw/sof-tgl-intel-signed.ri
+FWIMAGE  = ../firmware/intel/sof-tgl.ri
 OBJS     = build/TGLDmic.o build/DspBoot.o build/Capture.o build/TGLDmicUserClient.o build/Firmware.o build/kmod_info.o
 OUT      = build/TGLDmic.kext
 ARCH     = -arch x86_64 -mmacosx-version-min=10.15

@@ -3,7 +3,7 @@
 # Run from an Ubuntu live USB:   sudo bash capture-sof-dmic.sh
 # Safe by default: no DSP register access, no mmiotrace. Output is written next to the script (run it from a USB stick).
 # Default: no register reads (BARDUMP=1 enables, can freeze), no mmiotrace (MMIOTRACE=1, can freeze), PCM 6 only (ALLDMIC=1 adds PCM 7).
-# Output: ./sof-dmic-capture-<date>.tar.gz
+# Output: ./sof-dmic-capture-<date>.tar.gz (no audio unless KEEPWAV=1; safe to attach to an issue)
 set -u
 [ "$(id -u)" = 0 ] || { echo "Run with sudo"; exit 1; }
 PCI=0000:00:1f.3
@@ -180,4 +180,10 @@ for d in /run/user/*; do
   u=$(stat -c %U "$d")
   sudo -u "$u" XDG_RUNTIME_DIR="$d" systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber 2>/dev/null
 done
+# Privacy: the recording may contain voices from the room. Levels are kept in levels.txt;
+# the WAV only goes into the tarball with KEEPWAV=1.
+if [ "${KEEPWAV:-0}" != 1 ]; then
+  mkdir -p "$OUT.private" && mv "$OUT"/pcm/*.wav "$OUT.private/" 2>/dev/null && \
+    log "Recording kept out of the tarball: $OUT.private/ (KEEPWAV=1 to include)"
+fi
 cd "$(dirname "$OUT")" && tar czf "$OUT.tar.gz" "$(basename "$OUT")" && log "Done: $OUT.tar.gz"

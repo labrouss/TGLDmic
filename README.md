@@ -30,7 +30,8 @@ open an issue with the tarball, so a per-machine profile can be added.
 | `docs/ARCHITECTURE.md` | Design, phases, risks |
 | `linux/capture-sof-dmic.sh` | Phase 0 capture on a Linux live USB |
 | `linux/extract-ipc.py` | Turns the capture into `kext/TGLDmic/IpcReplay.hpp` |
-| `captures/` | Reference captures (firmware boot, pipeline setup, test WAV) |
+| `captures/` | Reference captures (Linux SOF logs, NHLT, topology, macOS logs; no audio) |
+| `firmware/` | Intel-signed SOF firmware embedded in the kext, with `LICENCE.Intel` |
 | `kext/` | The kext (`make SDK=...`, or GitHub Actions) |
 | `hal/` | Core Audio HAL plug-in `TGLDmic.driver`, `tgldmic-probe`, install scripts |
 | `pkg/` | Installer: scripts, `distribution.xml`, background logo, welcome/conclusion pages |
@@ -74,3 +75,7 @@ time stamps from the DMA position and a 0–36 dB input gain. See `docs/INSTALL.
 Every push builds `TGLDmic-<version>-kext.zip` (kext + tools) and `TGLDmic-<version>.pkg`
 (Core Audio plug-in installer) as separate artifacts. Pushing a tag `v*` (e.g. `git tag v0.4.3 && git push --tags`)
 also attaches both files to a GitHub Release.
+
+## Licence
+TGLDmic is BSD-3-Clause (`LICENSE`). The embedded SOF firmware is Intel's, redistributed unmodified
+under `firmware/LICENCE.Intel`.

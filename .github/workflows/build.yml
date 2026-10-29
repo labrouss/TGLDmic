@@ -36,6 +36,8 @@ jobs:
           cp tools/list-audio-devices.py tools/snapshot-to-wav.py hal/uninstall-hal.sh $D/
           cp docs/KEXT-README.md $D/README.md
           cp docs/INSTALL.md $D/INSTALL.md
+          cp LICENSE $D/LICENSE
+          cp firmware/LICENCE.Intel $D/LICENCE.Intel   # embedded SOF firmware licence
           (cd dist && ditto -c -k --keepParent TGLDmic-${{ steps.ver.outputs.v }}-kext TGLDmic-${{ steps.ver.outputs.v }}-kext.zip)
 
       - name: Driver installer package

@@ -91,10 +91,10 @@ TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_ST
   SPIB enabled on the loader stream, and the production-signed image (community build -> ROM error 44).
 * Phase 3: all 20 replayed IPC3 messages accepted; in6/tag 7 decoupled capture runs at the expected
   768 B/ms; samples match the Linux noise floor (-60 dBFS, ch2 == ch3 as on Linux).
-  Reference: `captures/macos-v0.3.0/`.
+  Reference: `captures/macos-v0.3.0/` (log; noise floor -60 dBFS, recording not kept).
 * v0.3.2 (music next to the laptop): 8 s sustained at 806 B/ms, envelope swings -63..-49 dBFS,
   loudest second -49 dBFS RMS / -30 dBFS peak, speech band -50 dBFS, mic-to-mic correlation 0.82.
-  **Internal DMIC confirmed working under macOS.** Reference: `captures/macos-v0.3.2/`.
+  **Internal DMIC confirmed working under macOS.** Reference: `captures/macos-v0.3.2/` (loudest second -49 dBFS, recording not kept).
 
 ## Status (2026-10-29, v0.4.2)
 * **Phase 4 confirmed on Ventura:** "Internal Microphone (TGLDmic)" is published by Core Audio, the

@@ -1,0 +1,6 @@
+# Never commit microphone recordings or extra firmware copies
+*.wav
+captures/**/*.ri
+kext/build/
+hal/build/
+dist/
