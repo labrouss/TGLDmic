@@ -6,7 +6,9 @@
 #define super IOService
 OSDefineMetaClassAndStructors(TGLDmic, IOService)
 
-#define LOG(fmt, ...) IOLog("TGLDmic: " fmt "\n", ##__VA_ARGS__)
+#include <stdarg.h>
+#define LOG(fmt, ...) logLine(fmt, ##__VA_ARGS__)
+static constexpr unsigned kLogLines = 64;
 
 static constexpr uint32_t kPollMs = 2000;      // stream observation interval
 static constexpr uint32_t kPollCount = 90;     // 3 minutes, then stop polling
@@ -23,10 +25,39 @@ IOService *TGLDmic::probe(IOService *provider, SInt32 *score) {
     // Physical ID check (OpenCore may spoof device-id for AppleHDA).
     uint32_t id = dev->configRead32(kIOPCIConfigVendorID);
     if (id != 0xA0C88086) {
-        LOG("probe: unexpected PCI id %08x, not attaching", id);
+        IOLog("TGLDmic: probe: unexpected PCI id %08x, not attaching\n", id);
         return nullptr;
     }
     return super::probe(provider, score);
+}
+
+void TGLDmic::logLine(const char *fmt, ...) {
+    char buf[200];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    IOLog("TGLDmic: %s\n", buf);
+    if (!logRing) logRing = OSArray::withCapacity(kLogLines);
+    if (!logRing) return;
+    if (logRing->getCount() >= kLogLines) logRing->removeObject(0);
+    if (auto s = OSString::withCString(buf)) { logRing->setObject(s); s->release(); }
+}
+
+bool TGLDmic::memoryDecoded() {
+    return pci->configRead16(kIOPCIConfigCommand) & kIOPCICommandMemorySpace;
+}
+
+// Only trust BAR0 once memory decoding is on, the device is in D0 and GCAP looks sane.
+bool TGLDmic::tryInit() {
+    if (ready) return true;
+    if (!memoryDecoded() || !inD0()) return false;
+    uint16_t gcap = r16(HDA::GCAP);
+    if (gcap == 0xFFFF || gcap == 0) { badReads++; return false; }
+    numOut = (gcap >> 12) & 0xF; numIn = (gcap >> 8) & 0xF; numBidi = (gcap >> 3) & 0x1F;
+    LOG("GCAP 0x%04x: %u in, %u out, %u bidi; HDA %u.%u; GCTL 0x%08x STATESTS 0x%04x (after %u bad reads)",
+        gcap, numIn, numOut, numBidi, r8(HDA::VMAJ), r8(HDA::VMIN), r32(HDA::GCTL), r16(HDA::STATESTS), badReads);
+    walkCapabilities();
+    ready = true;
+    snapshot(true);
+    return true;
 }
 
 bool TGLDmic::inD0() {
@@ -42,7 +73,7 @@ bool TGLDmic::start(IOService *provider) {
     pci->retain();
     readDsp = bootArg("-tgldmicdsp");
 
-    LOG("phase 1 observer v0.1 on %s (Darwin %d.%d), dsp-reads=%s",
+    LOG("phase 1 observer v0.1.1 on %s (Darwin %d.%d), dsp-reads=%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off");
 
     bar0 = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
@@ -60,16 +91,8 @@ bool TGLDmic::start(IOService *provider) {
         } else LOG("cannot map BAR4");
     }
 
-    if (!inD0()) {
-        LOG("controller not in D0 at start; deferring reads to timer");
-    } else {
-        uint16_t gcap = r16(HDA::GCAP);
-        numOut = (gcap >> 12) & 0xF; numIn = (gcap >> 8) & 0xF; numBidi = (gcap >> 3) & 0x1F;
-        LOG("GCAP 0x%04x: %u in, %u out, %u bidi; HDA %u.%u; GCTL 0x%08x STATESTS 0x%04x",
-            gcap, numIn, numOut, numBidi, r8(HDA::VMAJ), r8(HDA::VMIN), r32(HDA::GCTL), r16(HDA::STATESTS));
-        walkCapabilities();
-        snapshot(true);
-    }
+    LOG("at start: PCI CMD 0x%04x, D0=%d", pci->configRead16(kIOPCIConfigCommand), inD0());
+    if (!tryInit()) LOG("controller not decoded yet (AppleHDA not started?) - retrying from timer");
 
     workLoop = getWorkLoop();
     if (workLoop) {
@@ -108,6 +131,7 @@ void TGLDmic::snapshot(bool verbose) {
     for (uint32_t i = 0; i < total; i++) {
         uint32_t base = HDA::SD_BASE + i * HDA::SD_STRIDE;
         uint32_t ctl = r32(base + HDA::SD_CTL);
+        if (ctl == 0xFFFFFFFF) { badReads++; return; }   // controller went away (D3/reset): skip this sample
         uint32_t tag = (ctl >> HDA::SD_CTL_TAG_SHIFT) & 0xF;
         bool run = ctl & HDA::SD_CTL_RUN;
         if (tag) tagsSeen[i] = tag;
@@ -134,8 +158,12 @@ void TGLDmic::publish() {
     setProperty("PPOffset", ppOffset, 32);
     setProperty("MLOffset", mlOffset, 32);
     setProperty("Samples", samples, 32);
-    if (ppOffset && hda) setProperty("PPCTL", r32(ppOffset + HDA::PP_PPCTL), 32);
-    if (dsp) setProperty("ADSPCS", d32(DSP::ADSPCS), 32);
+    setProperty("Ready", ready);
+    setProperty("BadReads", badReads, 32);
+    if (logRing) { if (auto copy = OSArray::withArray(logRing)) { setProperty("Log", copy); copy->release(); } }
+    if (ready && ppOffset && hda) setProperty("PPCTL", r32(ppOffset + HDA::PP_PPCTL), 32);
+    if (ready && dsp) setProperty("ADSPCS", d32(DSP::ADSPCS), 32);
+    if (!ready) return;
     // Suggested spare descriptors for the DSP path: highest input and highest output not used by AppleHDA.
     int spareIn = -1, spareOut = -1;
     for (int i = (int)numIn - 1; i >= 0; i--) if (!(everRunning & (1u << i))) { spareIn = i; break; }
@@ -147,18 +175,12 @@ void TGLDmic::publish() {
 void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     auto self = OSDynamicCast(TGLDmic, owner);
     if (!self) return;
-    if (self->inD0()) {
-        if (!self->numIn && !self->numOut) {      // deferred initial read
-            uint16_t gcap = self->r16(HDA::GCAP);
-            self->numOut = (gcap >> 12) & 0xF; self->numIn = (gcap >> 8) & 0xF; self->numBidi = (gcap >> 3) & 0x1F;
-            self->walkCapabilities();
-        }
+    if (self->tryInit() && self->memoryDecoded() && self->inD0())
         self->snapshot(false);
-    }
     self->samples++;
     self->publish();
     if (self->samples < kPollCount) sender->setTimeoutMS(kPollMs);
-    else LOG("observation finished: used stream mask 0x%08x", self->everRunning);
+    else { self->logLine("observation finished: used stream mask 0x%08x", self->everRunning); self->publish(); }
 }
 
 void TGLDmic::stop(IOService *provider) {
@@ -175,6 +197,7 @@ void TGLDmic::stop(IOService *provider) {
 }
 
 void TGLDmic::free() {
+    OSSafeReleaseNULL(logRing);
     OSSafeReleaseNULL(pci);
     super::free();
 }

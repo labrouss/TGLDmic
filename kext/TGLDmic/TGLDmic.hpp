@@ -31,6 +31,13 @@ private:
     uint32_t tagsSeen[32] {};        // last non-zero stream tag per descriptor
     uint32_t samples {0};
     bool readDsp {false};
+    bool ready {false};              // controller decoded + GCAP sane
+    uint32_t badReads {0};
+    OSArray *logRing {nullptr};      // last log lines, published as "Log" (IOLog may not reach `log show`)
+
+    bool memoryDecoded();
+    bool tryInit();
+    void logLine(const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
     bool inD0();
     uint32_t r32(uint32_t off) { return *reinterpret_cast<volatile uint32_t *>(hda + off); }

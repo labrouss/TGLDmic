@@ -15,5 +15,6 @@ behind the Smart Sound DSP). Runs next to AppleHDA/AppleALC, which keep speakers
 Add `TGLDmic.kext` to OpenCore `Kernel > Add` **after AppleALC**. It writes nothing to hardware.
 Boot args: `-tgldmicoff` disables it, `-tgldmicdsp` also reads DSP status registers (BAR4).
 
-    log show --last boot --predicate 'eventMessage CONTAINS "TGLDmic"'
+    ioreg -l -w0 -c TGLDmic          # "Log" property holds the last 64 log lines
+    sudo dmesg | grep TGLDmic
     ioreg -l -w0 -c TGLDmic
