@@ -1,0 +1,12 @@
+[23:18:13] Copying firmware, topology, NHLT
+'/lib/firmware/intel/sof/sof-tgl.ri' -> '/usb/sof-dmic-capture-20261028-231813/fw/sof-tgl.ri'
+'/lib/firmware/intel/sof/community/sof-tgl.ri' -> '/usb/sof-dmic-capture-20261028-231813/fw/sof-tgl.ri'
+'/lib/firmware/intel/sof-tplg/sof-hda-generic-4ch.tplg' -> '/usb/sof-dmic-capture-20261028-231813/fw/sof-hda-generic-4ch.tplg'
+'/lib/firmware/intel/sof-tplg/sof-hda-generic.tplg' -> '/usb/sof-dmic-capture-20261028-231813/fw/sof-hda-generic.tplg'
+[23:18:14] Stopping PipeWire/PulseAudio
+[23:18:16] Unloading SOF stack
+modprobe: FATAL: Module snd_sof_intel_hda_common is in use.
+[23:18:17] mmiotrace off (enable with MMIOTRACE=1 as a separate run; it can freeze the system)
+[23:18:17] Loading SOF stack
+[23:18:21] DMIC PCMs: 
+[23:18:23] Restarting PipeWire

@@ -1,0 +1,2 @@
+ 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp
+                      HP-HPEliteBook840G8NotebookPC-SBKPF-8AB8

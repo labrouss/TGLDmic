@@ -1,0 +1,69 @@
+TGLDmic v0.3.0 on HDEF (Darwin 22.6), dsp-reads=off, dsp-boot=ON
+BAR0 phys 0x200000 len 0x4000
+at start: PCI CMD 0x0000, D0=1
+controller not decoded yet (AppleHDA not started?) - retrying from timer
+GCAP 0x9701: 7 in, 9 out, 0 bidi; HDA 1.0; GCTL 0x00000101 STATESTS 0x0000 (after 0 bad reads)
+ext cap @0x0c00 id 2 hdr 0x00020800
+ext cap @0x0800 id 3 hdr 0x00030500
+ext cap @0x0500 id 1 hdr 0x00011f00
+ext cap @0x1f00 id 5 hdr 0x00050700
+ext cap @0x0700 id 4 hdr 0x00040000
+PP: PPCH 0x00030500 PPCTL 0x40000000 PPSTS 0x00000000
+stream 0 (in0): CTL 0x00140000 tag 1
+stream 1 (in1): CTL 0x00240000 tag 2
+stream 2 (in2): CTL 0x00040000 tag 0
+stream 3 (in3): CTL 0x00040000 tag 0
+stream 4 (in4): CTL 0x00040000 tag 0
+stream 5 (in5): CTL 0x00040000 tag 0
+stream 6 (in6): CTL 0x00040000 tag 0
+stream 7 (out0): CTL 0x00140000 tag 1
+stream 8 (out1): CTL 0x00040000 tag 0
+stream 9 (out2): CTL 0x00040000 tag 0
+stream 10 (out3): CTL 0x00040000 tag 0
+stream 11 (out4): CTL 0x00040000 tag 0
+stream 12 (out5): CTL 0x00040000 tag 0
+stream 13 (out6): CTL 0x00040000 tag 0
+stream 14 (out7): CTL 0x00040000 tag 0
+stream 15 (out8): CTL 0x00040000 tag 0
+boot: === phase 2 DSP boot attempt ===
+boot: ADSPCS 0x00000f0f PPCTL 0x40000000 before boot
+boot: firmware 525056 bytes, payload 524288 bytes after 768-byte ext manifest
+boot: DMA mapper AppleVTDDeviceMapper, fw phys 0x4071f4000 -> iova 0xff000000
+boot: clock/power gating off (CGCTL 0x00fb09ff PGCTL 0x00000000 EM2 0x84806000)
+boot: SPIB: SPBFCCTL 0x00000000 -> 0x00008000, SPIB[15] 0 -> 524288, MAXFIFO 0
+boot: PPCTL 0x40008000 (PROCEN bit 15 set)
+boot: loader stream 15 (sd 0x260) tag 9, fw 524288 bytes @iova 0xff000000, bdl @0x83000
+boot: core0 powered, ADSPCS 0x0f010f0f
+boot: core0 running, ADSPCS 0x0f010e0e
+boot: ROM init done, FSR 0x05000001
+boot: pre-run CMD 0x0406 INTCTL 0xc0000000 SD CTL 0x00940000 CBL 524288 LVI 1 FMT 0x0040 BDP 0x0000000000083000
+boot: t=0us FSR 0x05000001
+boot: t=80us FSR 0x00000007 (mod 0 wait 0 state 0x7) DPIB 32768, 0 wait toggles
+boot: t=140us FSR 0x00000002 (mod 0 wait 0 state 0x2) DPIB 32768, 0 wait toggles
+boot: t=340us FSR 0x05000003 (mod 0 wait 5 state 0x3) DPIB 35264, 0 wait toggles
+boot: t=4820us FSR 0x06000012 (mod 0 wait 6 state 0x12) DPIB 524288, 29 wait toggles
+boot: t=16280us FSR 0x00000005 (mod 0 wait 0 state 0x5) DPIB 524288, 31 wait toggles
+boot: trace end t=16280us FSR 0x00000005 DPIB 524288, 31 wait toggles
+boot: code loader FW_ENTERED, FSR 0x00000005, LPIB 0 DPIB 524288
+boot: DSP message 0x70000000, mailbox hdr size 108 cmd 0x70000000
+boot: SUCCESS - SOF firmware running (FW_READY)
+cap: === phase 3 DMIC capture test ===
+cap: stream 6 (sd 0x140) tag 7 ring 65536 B @iova 0x90000, page table @0x83000, bdl @0x84000
+cap: PCM_PARAMS ok, comp 50 posn_offset 0x0
+cap: setup: 20 IPC messages ok
+cap: host DMA running, CTL 0x2074001e (FIFORDY yes)
+cap: start: 1 IPC messages ok
+cap: t=250ms DPIB 1408 LPIB 1408 CTL 0x2074001e copied 6016 B
+cap: t=500ms DPIB 2944 LPIB 2944 CTL 0x2074001e copied 204160 B
+cap: t=750ms DPIB 9856 LPIB 9856 CTL 0x2074001e copied 407680 B
+cap: t=1000ms DPIB 14464 LPIB 14464 CTL 0x2074001e copied 608896 B
+cap: streamed 961408 bytes in 1200 ms (expect ~768 B/ms), snapshot 768000 B
+cap: peak |x| ch0 15806038 ch1 12807580 ch2 8981684 ch3 8969193 (full scale 2147483647)
+cap: mean |x| ch0 1720692 ch1 1560070 ch2 1631864 ch3 1631804
+cap: stop: 1 IPC messages ok
+cap: pcm-free: 1 IPC messages ok
+cap: teardown: 8 IPC messages ok
+cap: done: OK 48000 frames, signal present
+boot: core0 powered down, ADSPCS 0x00000f0f
+boot: clock/power gating restored
+boot: PPCTL 0x40000000 after boot, AppleHDA streams untouched
