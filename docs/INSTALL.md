@@ -48,7 +48,7 @@ More in [TESTING.md](TESTING.md).
   boot the DSP. While recording, TGLDmic holds the HDA PCI device in D0 (IOKit power child), so the
   HDA driver's idle power-down cannot reset the DSP mid-stream.
 * System sleep while recording stops the stream cleanly; recording again after wake re-boots the DSP.
-* Tested on Ventura only. Sequoia and Tahoe (HDA-Universal) still need testing.
+* Tested on Ventura (AppleALC) and Tahoe (HDAUniversal). Sonoma and Sequoia not yet verified.
 * Core Audio IO buffers above ~2048 frames could read outside the 4096-frame ring; normal apps use 512–1024.
 
 ## Remove

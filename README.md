@@ -25,9 +25,10 @@ TGLDmic boots Intel's SOF firmware on that DSP and exposes the mics to macOS as 
 |---|---|
 | Supported | Intel Smart Sound DSP `8086:A0C8`: Tiger Lake **LP** (11th-gen Core, UP3/UP4) |
 | Not supported | Tiger Lake-H `8086:43C8`, Ice Lake and older, Alder Lake and newer |
-| Tested | HP EliteBook 840 G8 (4 PDM mics, ALC285) on macOS Ventura |
+| Tested | HP EliteBook 840 G8 (4 PDM mics, ALC285): macOS Ventura (AppleALC) and Tahoe (HDAUniversal) |
 | Other Tiger Lake laptops | Expected to work with a 2- or 4-mic PDM array; **untested**, reports welcome |
-| macOS | Ventura tested; Sonoma, Sequoia, Tahoe not yet verified |
+| macOS | Ventura and Tahoe tested; Sonoma (AppleALC) and Sequoia (HDAUniversal) expected to work |
+| Audio driver | Works next to **AppleALC/AppleHDA** or **HDAUniversal** (speakers and headset stay with them) |
 
 > **Device-id spoof:** OpenCore configs usually spoof the audio controller as `34C8` for AppleALC.
 > TGLDmic matches that too, then checks the real PCI ID and only attaches to a genuine `A0C8`.

@@ -114,3 +114,14 @@ TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_ST
   ready. Also learned: AppleHDA's idle state keeps the PCI function in D0 but holds the controller in
   reset (CRST=0). v0.4.5: join PM only after the HDA driver attached, as *its* child (holding "on"
   keeps it out of its idle/reset state while recording); reset-aware init; no PCI-level PM join.
+
+## Findings: Tahoe / HDAUniversal (v0.4.6 - v0.4.11)
+- **DEVC no-snoop enable (PCI 0x78 bit 11) must be SET for the ROM to load firmware.** With it clear the
+  ROM accepts both manifests (FSR states 7, 2, 3) and then halts (0x80000003, error 0) before fetching
+  the rest. AppleHDA leaves it set (0x2800); HDAUniversal clears it (0x2000). TGLDmic sets it while the
+  DSP is powered and restores the HDA driver's value when core0 powers down.
+- Tahoe gives the controller no per-device IOMMU mapper; the system mapper's IOVAs work (physical
+  addresses do not: DMA fetches nothing).
+- HDAUniversal keeps the controller powered and must not get a power child: a child asking for "off"
+  made it drop the function to D3 (audio out lost). The power hold is used only under AppleHDA.
+
