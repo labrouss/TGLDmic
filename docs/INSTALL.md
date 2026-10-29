@@ -10,7 +10,7 @@ Each build produces two files:
 ## 1. Kext (OpenCore)
 1. Replace `EFI/OC/Kexts/TGLDmic.kext` with this version (keep it after AppleALC in `Kernel > Add`).
 2. In `boot-args`, **remove** `-tgldmiccap` and `tgldmicdelay=…` and **add** `-tgldmic`.
-3. Reboot. About 10 s after the controller comes up the DSP boots and stays running:
+3. Reboot. About 10 s after the controller comes up the kext runs a one-time DSP boot test, then powers the DSP down until something records:
 
        ioreg -l -w0 -c TGLDmic | grep -E '"BootResult"|"TGLDmicPhase"|"Streaming"'
        # expect: BootResult = "OK FW_READY", TGLDmicPhase = 4, Streaming = No, PowerHold = No
@@ -36,6 +36,8 @@ the input level meter should move. QuickTime → File → New Audio Recording ca
 * Left = mic 0, right = mic 1 (the closely spaced pair).
 
 ## Logs if something does not work
+More in [TESTING.md](TESTING.md).
+
     python3 list-audio-devices.py      # is "Internal Microphone (TGLDmic)" published by Core Audio?
     log show --last boot --predicate 'eventMessage CONTAINS "TGLDmic: "' --info   # plug-in property trace + IO
     log show --last 10m --predicate 'eventMessage CONTAINS "TGLDmic"' --info
@@ -46,10 +48,10 @@ the input level meter should move. QuickTime → File → New Audio Recording ca
   boot the DSP. While recording, TGLDmic holds the HDA PCI device in D0 (IOKit power child), so the
   HDA driver's idle power-down cannot reset the DSP mid-stream.
 * System sleep while recording stops the stream cleanly; recording again after wake re-boots the DSP.
-* Tested on Ventura only. Sequoia and Tahoe (HDA-Universal) still need the phase 1 stream check.
+* Tested on Ventura only. Sequoia and Tahoe (HDA-Universal) still need testing.
+* Core Audio IO buffers above ~2048 frames could read outside the 4096-frame ring; normal apps use 512–1024.
 
 ## Remove
     ./uninstall-hal.sh                          # from the kext zip; removes the plug-in
     sudo pkgutil --forget com.labrouss.TGLDmic.driver.pkg
     # and drop -tgldmic from boot-args / TGLDmic.kext from OpenCore
-* Core Audio IO buffers above ~2048 frames could read outside the 4096-frame ring; normal apps use 512–1024.

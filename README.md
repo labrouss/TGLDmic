@@ -8,74 +8,86 @@ Internal digital microphones (DMIC) of Intel Tiger Lake laptops via the Intel Sm
 
 > Unofficial community project. Not affiliated with or endorsed by Intel, Apple or any laptop vendor.
 
-Internal microphone driver for Tiger Lake (TGL-LP) hackintosh laptops whose PDM mic array sits
-behind the Smart Sound DSP instead of the HDA codec. Runs next to AppleHDA/AppleALC, which keep
-speakers and headset.
+On many Tiger Lake laptops the built-in microphones are not wired to the HDA codec but to the
+Smart Sound DSP, so AppleALC cannot make them work and hackintoshes end up without an internal mic.
+TGLDmic boots Intel's SOF firmware on that DSP and exposes the mics to macOS as a normal input device,
+**Internal Microphone (TGLDmic)**. It runs next to AppleHDA/AppleALC, which keep speakers and headset.
+
+## Features
+- Standard Core Audio input device: shows up in System Settings and any recording app (tested: Voice Memos, QuickTime)
+- Stereo 48 kHz, input gain 0–36 dB via the macOS input volume slider
+- DSP is powered only while something records (~120 ms start-up)
+- Repeated recording sessions; coexists with AppleHDA/AppleALC
+- Installer package for the Core Audio plug-in that checks the kext version first
 
 ## Compatibility
 | | |
 |---|---|
-| Matches | Intel Smart Sound DSP `8086:A0C8` (Tiger Lake **LP**: 11th-gen Core UP3/UP4 laptops) |
-| Device-id spoof | Also matches `34C8` (the usual OpenCore `device-id` spoof for AppleALC); `probe()` then checks the **physical** ID in PCI config space and only attaches to real `A0C8` |
-| Not supported | Tiger Lake-H `8086:43C8` (needs `sof-tgl-h.ri`), Ice Lake and older, Alder Lake and newer |
-| Reference machine | HP EliteBook 840 G8 (4 PDM mics, ALC285): **tested** on Ventura |
-| Other Tiger Lake laptops | Expected to work when the NHLT describes a 2- or 4-mic PDM array on DMIC0; **untested**, reports welcome |
+| Supported | Intel Smart Sound DSP `8086:A0C8`: Tiger Lake **LP** (11th-gen Core, UP3/UP4) |
+| Not supported | Tiger Lake-H `8086:43C8`, Ice Lake and older, Alder Lake and newer |
+| Tested | HP EliteBook 840 G8 (4 PDM mics, ALC285) on macOS Ventura |
+| Other Tiger Lake laptops | Expected to work with a 2- or 4-mic PDM array; **untested**, reports welcome |
+| macOS | Ventura tested; Sonoma, Sequoia, Tahoe not yet verified |
 
-The pipeline setup (`kext/TGLDmic/IpcReplay.hpp`) is replayed from a Linux SOF capture of the
-reference machine. If your mic stays silent, run `linux/capture-sof-dmic.sh` on your laptop and
-open an issue with the tarball, so a per-machine profile can be added.
+> **Device-id spoof:** OpenCore configs usually spoof the audio controller as `34C8` for AppleALC.
+> TGLDmic matches that too, then checks the real PCI ID and only attaches to a genuine `A0C8`.
+
+## Install
+Download both files from [Releases](../../releases):
+
+| File | What |
+|---|---|
+| `TGLDmic-<version>-kext.zip` | `TGLDmic.kext` for OpenCore + test tools |
+| `TGLDmic-<version>.pkg` | Installer for the Core Audio plug-in |
+
+1. Add `TGLDmic.kext` to `EFI/OC/Kexts` and to `Kernel > Add` in `config.plist`, **after AppleALC**.
+2. Add `-tgldmic` to `boot-args` and reboot.
+3. Run `TGLDmic-<version>.pkg`. It checks that the matching kext is loaded before installing.
+4. Pick **Internal Microphone (TGLDmic)** under **System Settings → Sound → Input**.
+
+Full steps, troubleshooting and removal: [docs/INSTALL.md](docs/INSTALL.md).
+
+## How it works
+```
+ Apps ─▶ Core Audio ─▶ TGLDmic.driver (HAL plug-in) ─▶ TGLDmic.kext ─▶ Smart Sound DSP (SOF) ─▶ PDM mics
+                         ring buffer + timestamps      boots firmware,      capture pipeline
+                                                       sets up DMA          DMIC0 → PCM
+```
+The kext loads the Intel-signed SOF firmware into the DSP, replays the IPC messages Linux uses to
+build the DMIC capture pipeline, and streams the audio into a ring buffer by DMA. The HAL plug-in
+maps that ring and presents it to Core Audio. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Your laptop is not working?
+The pipeline setup is recorded from the reference machine. If the mic stays silent on your laptop:
+1. Boot an Ubuntu live USB and run `sudo bash linux/capture-sof-dmic.sh`. It records no audio into the tarball.
+2. Open an issue with the tarball and `ioreg -l -w0 -c TGLDmic` from macOS.
+
+Debug boot args and test procedures: [docs/TESTING.md](docs/TESTING.md).
+
+## Building
+GitHub Actions builds both files on every push, and attaches them to a Release for `v*` tags.
+Locally on macOS with Xcode command-line tools and [MacKernelSDK](https://github.com/acidanthera/MacKernelSDK):
+
+    make -C kext SDK=/path/to/MacKernelSDK
+    make -C hal
+
+`tools/set-version.sh X.Y.Z` sets the version in every place.
 
 | Path | What |
 |---|---|
-| `docs/ARCHITECTURE.md` | Design, phases, risks |
-| `linux/capture-sof-dmic.sh` | Phase 0 capture on a Linux live USB |
-| `linux/extract-ipc.py` | Turns the capture into `kext/TGLDmic/IpcReplay.hpp` |
-| `captures/` | Reference captures (Linux SOF logs, NHLT, topology, macOS logs; no audio) |
-| `firmware/` | Intel-signed SOF firmware embedded in the kext, with `LICENCE.Intel` |
-| `kext/` | The kext (`make SDK=...`, or GitHub Actions) |
-| `hal/` | Core Audio HAL plug-in `TGLDmic.driver`, `tgldmic-probe`, install scripts |
-| `pkg/` | Installer: scripts, `distribution.xml`, background logo, welcome/conclusion pages |
-| `assets/` | Project icon (`tgldmic-icon-{256,512,1024}.png`, transparent) |
-| `docs/INSTALL.md` | End-user install and test steps (shipped in the build artifact) |
+| `kext/` | Kernel driver `TGLDmic.kext` |
+| `hal/` | Core Audio plug-in `TGLDmic.driver`, `tgldmic-probe` |
+| `pkg/` | Installer package sources |
+| `firmware/` | Intel-signed SOF firmware embedded in the kext |
+| `linux/` | Capture tool and IPC extractor |
+| `captures/` | Reference captures (logs, NHLT, topology; no audio) |
+| `tools/` | Build and diagnostic helpers |
+| `docs/` | Install, testing, architecture |
 
-## Phase 1: read-only observer (default)
-Add `TGLDmic.kext` to OpenCore `Kernel > Add` **after AppleALC**. It writes nothing to hardware.
-Boot args: `-tgldmicoff` disables it, `-tgldmicdsp` also reads DSP status registers (BAR4).
-
-    ioreg -l -w0 -c TGLDmic          # "Log" property holds the last 64 log lines
-    sudo dmesg | grep TGLDmic
-    ioreg -l -w0 -c TGLDmic
-
-## Phase 2: DSP boot (opt-in)
-Boot arg `-tgldmicboot`: ~20 s after the controller is up, TGLDmic boots the SOF firmware on the
-DSP using the highest output stream as code loader (no interrupts, all polled), waits for
-`FW_READY`, then powers the DSP core down again. `-tgldmickeep` leaves it running.
-Result: `BootState` (1 = OK, 2 = failed) and `BootResult` in `ioreg -l -w0 -c TGLDmic`.
-Test speakers/headset before and after the attempt.
-
-## Phase 3: DMIC capture test (opt-in)
-Boot arg `-tgldmiccap` (implies `-tgldmicboot`): after FW_READY, TGLDmic replays the 20 Linux IPC3
-setup messages for pipeline 10, runs input stream 6 (tag 7) decoupled into the DSP, records 8 s of 4-ch 48 kHz S32_LE audio
-(published: the loudest 1 s as `CaptureSnapshot`, and a 100 ms loudness envelope as `CaptureEnvelope`),
-then tears everything down and powers the DSP off.
-
-    ioreg -a -l -w0 -c TGLDmic > tgldmic.plist
-    python3 tools/snapshot-to-wav.py tgldmic.plist dmic.wav     # WAV + per-channel levels
-
-Talk near the laptop when it runs: by default 20 s after the controller is ready, or set
-`tgldmicdelay=<seconds>` (10-170), e.g. `tgldmicdelay=90` to record after you have logged in.
-
-## Phase 4: real input device (boot arg `-tgldmic`)
-The kext boots the DSP 10 s after the controller is up and keeps it running. `TGLDmicUserClient`
-exposes start/stop, the DMA position and the 64 KB ring (mapped read-only). The HAL plug-in
-`TGLDmic.driver` turns that into "Internal Microphone (TGLDmic)": stereo Float32 48 kHz, with zero
-time stamps from the DMA position and a 0–36 dB input gain. See `docs/INSTALL.md`.
-
-## CI artifacts
-Every push builds `TGLDmic-<version>-kext.zip` (kext + tools) and `TGLDmic-<version>.pkg`
-(Core Audio plug-in installer) as separate artifacts. Pushing a tag `v*` (e.g. `git tag v0.4.3 && git push --tags`)
-also attaches both files to a GitHub Release.
+## Credits
+- [Sound Open Firmware](https://github.com/thesofproject) — the DSP firmware and the Linux driver this work is based on
+- [acidanthera](https://github.com/acidanthera) — MacKernelSDK, OpenCore, AppleALC
 
 ## Licence
-TGLDmic is BSD-3-Clause (`LICENSE`). The embedded SOF firmware is Intel's, redistributed unmodified
-under `firmware/LICENCE.Intel`.
+TGLDmic is BSD-3-Clause ([LICENSE](LICENSE)). The embedded SOF firmware is Intel's, redistributed
+unmodified under [firmware/LICENCE.Intel](firmware/LICENCE.Intel).
