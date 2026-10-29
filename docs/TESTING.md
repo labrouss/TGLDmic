@@ -56,6 +56,13 @@ With `-tgldmic`, test the kext directly before installing the plug-in:
 
 Expect `start: 0x0`, about 48000 frames/s and the levels above.
 
+## Comparing two setups (OS, EFI)
+The first boot attempt saves the controller state left by the HDA driver as `PreBootRegs`
+(PCI config space, HDA globals, PP/SPB/ML capabilities, Intel vendor registers):
+
+    ioreg -a -r -c TGLDmic -d 1 > regs-ventura.plist     # on each setup
+    python3 tools/diff-regs.py regs-ventura.plist regs-tahoe.plist
+
 ## Core Audio plug-in
     python3 tools/list-audio-devices.py      # is "Internal Microphone (TGLDmic)" published?
     log show --last boot --predicate 'eventMessage CONTAINS "TGLDmic: "' --info

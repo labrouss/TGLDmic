@@ -33,7 +33,7 @@ jobs:
           D=dist/TGLDmic-${{ steps.ver.outputs.v }}-kext
           mkdir -p $D
           cp -R kext/build/TGLDmic.kext hal/build/tgldmic-probe $D/
-          cp tools/list-audio-devices.py tools/snapshot-to-wav.py hal/uninstall-hal.sh $D/
+          cp tools/list-audio-devices.py tools/snapshot-to-wav.py tools/diff-regs.py hal/uninstall-hal.sh $D/
           cp docs/KEXT-README.md $D/README.md
           cp docs/INSTALL.md $D/INSTALL.md
           cp LICENSE $D/LICENSE

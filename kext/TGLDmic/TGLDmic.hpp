@@ -83,6 +83,8 @@ private:
     void ensureSnoop(const char *who);
     bool snoopLogged {false};
     uint32_t capRetries {0};
+    bool regSnapTaken {false};
+    void snapshotRegs();
     bool prepareLoaderStream(uint32_t globalIndex, uint32_t tag, size_t fwBytes);
     void releaseLoaderStream(uint32_t globalIndex);
     void gating(bool enable);

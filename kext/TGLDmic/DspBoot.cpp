@@ -101,6 +101,19 @@ void TGLDmic::ensureSnoop(const char *who) {
     snoopLogged = true;
 }
 
+// "PreBootRegs": PCI config 0x00-0xFF, HDA 0x000-0x0FF (globals), PP/SPB/ML caps (64 B each) and the
+// Intel vendor block 0x1000-0x10FF, as the HDA driver left them. tools/diff-regs.py compares two OSes.
+void TGLDmic::snapshotRegs() {
+    static const struct { uint16_t base, len; } kHda[] = { {0x000, 0x100}, {0x700, 0x40}, {0x800, 0x40}, {0xC00, 0x40}, {0x1000, 0x100} };
+    uint32_t buf[(0x100 + 0x100 + 0x40 * 3 + 0x100) / 4];
+    uint32_t n = 0;
+    for (uint32_t o = 0; o < 0x100; o += 4) buf[n++] = pci->configRead32(o);
+    for (auto &r : kHda)
+        for (uint32_t o = r.base; o < r.base + r.len; o += 4) buf[n++] = r32(o);
+    if (auto d = OSData::withBytes(buf, n * 4)) { setProperty("PreBootRegs", d); d->release(); }
+    LOG("boot: register snapshot saved (PreBootRegs, %u bytes)", n * 4);
+}
+
 bool TGLDmic::streamStopReset(uint32_t sd) {
     w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
     if (!pollHda(sd, HDA::SD_CTL_RUN, 0, 300)) {
@@ -253,6 +266,7 @@ bool TGLDmic::bootDsp() {
         w8(VS_D0I3C, d0i3 & ~D0I3C_I3);
         LOG("boot: controller was in D0i3 (D0I3C 0x%02x) - cleared", d0i3);
     }
+    if (!regSnapTaken) { snapshotRegs(); regSnapTaken = true; }   // state left by the HDA driver, for OS diffs
     gating(false);
     bool ok = false;
     uint32_t v = 0;

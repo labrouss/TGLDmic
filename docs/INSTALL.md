@@ -1,4 +1,4 @@
-# TGLDmic 0.4.9: internal microphone for Intel Tiger Lake laptops (macOS)
+# TGLDmic 0.4.10: internal microphone for Intel Tiger Lake laptops (macOS)
 
 Each build produces two files:
 
