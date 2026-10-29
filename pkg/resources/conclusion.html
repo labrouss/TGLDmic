@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>body{font-family:-apple-system,Helvetica,sans-serif;font-size:13px;line-height:1.45}</style>
+</head><body>
+<p>Open <b>System Settings → Sound → Input</b> and select <b>Internal Microphone (TGLDmic)</b>.</p>
+<p>The input level meter should follow your voice. If the device is missing, check that
+<code>kextstat | grep TGLDmic</code> lists the kext and that <code>-tgldmic</code> is in boot-args.</p>
+</body></html>

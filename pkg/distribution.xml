@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>TGLDmic – Tiger Lake Microphone Driver</title>
+    <background file="background.png" alignment="bottomleft" scaling="none"/>
+    <background-darkAqua file="background.png" alignment="bottomleft" scaling="none"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+    <options customize="never" require-scripts="true" hostArchitectures="x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.labrouss.TGLDmic.driver.pkg"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.labrouss.TGLDmic.driver.pkg" visible="false">
+        <pkg-ref id="com.labrouss.TGLDmic.driver.pkg"/>
+    </choice>
+    <pkg-ref id="com.labrouss.TGLDmic.driver.pkg" version="@VERSION@" onConclusion="none">TGLDmic-driver-component.pkg</pkg-ref>
+</installer-gui-script>

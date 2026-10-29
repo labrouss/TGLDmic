@@ -195,10 +195,12 @@ IOReturn TGLDmic::gatedStart(OSObject *o, void *, void *, void *, void *) {
     auto self = OSDynamicCast(TGLDmic, o);
     if (!self) return kIOReturnBadArgument;
     if (self->startCount++ > 0 && self->streaming) return kIOReturnSuccess;
-    if (!self->ready || !self->holdPower()) {
+    // Hold power first: this wakes the HDA driver, which takes the controller out of reset.
+    bool powered = self->holdPower();
+    if (!powered || !self->tryInit()) {
         self->startCount--;
         if (self->startCount == 0) self->releasePower();
-        self->LOG("svc: start refused (controller %s)", self->ready ? "did not reach D0" : "not ready");
+        self->LOG("svc: start refused (%s)", powered ? "controller registers not readable" : "controller did not come out of reset/D3");
         return kIOReturnNotReady;
     }
     if (!self->dspAlive(true)) {
@@ -252,12 +254,16 @@ IOReturn TGLDmic::gatedPowerLost(OSObject *o, void *, void *, void *, void *) {
 
 bool TGLDmic::holdPower() {
     if (pmJoined && pmState != 1) changePowerStateTo(1);
-    for (uint32_t t = 0; t < 1000; t += 10) {
-        if (memoryDecoded() && inD0() && r32(HDA::GCTL) != 0xFFFFFFFF && (r32(HDA::GCTL) & 1)) return true;
+    for (uint32_t t = 0; t < 3000; t += 10) {
+        if (memoryDecoded() && inD0() && r32(HDA::GCTL) != 0xFFFFFFFF && (r32(HDA::GCTL) & 1)) {
+            if (t) LOG("svc: controller usable after %u ms (HDA driver power state %u)", t, pmParent ? (unsigned)pmParent->getPowerState() : 0u);
+            return true;
+        }
         IOSleep(10);
     }
-    LOG("svc: controller still not usable after 1 s (CMD 0x%04x D0 %d GCTL 0x%08x)",
-        pci->configRead16(kIOPCIConfigCommand), inD0(), memoryDecoded() ? r32(HDA::GCTL) : 0);
+    LOG("svc: controller still not usable after 3 s (CMD 0x%04x D0 %d GCTL 0x%08x, HDA driver power state %u, ours %lu)",
+        pci->configRead16(kIOPCIConfigCommand), inD0(), memoryDecoded() ? r32(HDA::GCTL) : 0,
+        pmParent ? (unsigned)pmParent->getPowerState() : 0u, pmState);
     return false;
 }
 

@@ -130,6 +130,10 @@ private:
     // Power management: TGLDmic is a PM child of the HDA PCI device. While a client records we hold
     // "on" (state 1), so the HDA driver's idle D3 cannot reset the DSP mid-stream.
     bool pmJoined {false};
+    IOService *pmParent {nullptr};    // the HDA driver (AppleHDAController / HDA-Universal / VoodooHDA), else the PCI device
+    uint32_t pmSearchTicks {0};
+    bool resetLogged {false};
+    void joinPowerParent();
     unsigned long pmState {0};
     bool holdPower();                 // request state 1 and wait for D0 + memory decoding
     void releasePower();

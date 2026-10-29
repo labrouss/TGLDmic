@@ -58,14 +58,21 @@ jobs:
             head -1 pkgscripts/$s | od -c | head -1
             bash -n pkgscripts/$s
           done
+          mkdir -p pkgparts
           pkgbuild --root "$ROOT" --component-plist component.plist --scripts pkgscripts \
                    --identifier com.labrouss.TGLDmic.driver.pkg --version "$V" --install-location / \
-                   "dist/TGLDmic-$V.pkg"
-          pkgutil --payload-files "dist/TGLDmic-$V.pkg"
-          # verify what ended up inside the package
-          pkgutil --expand "dist/TGLDmic-$V.pkg" pkgcheck
+                   pkgparts/TGLDmic-driver-component.pkg
+          pkgutil --payload-files pkgparts/TGLDmic-driver-component.pkg
+          # verify the scripts inside the component package
+          pkgutil --expand pkgparts/TGLDmic-driver-component.pkg pkgcheck
           ls -l pkgcheck/Scripts 2>/dev/null || (cd pkgcheck && mkdir s && cd s && gzip -dc ../Scripts | cpio -i 2>/dev/null; ls -l)
           rm -rf pkgcheck
+          # product archive: logo background, title, welcome/conclusion pages
+          sed "s/@VERSION@/$V/" pkg/distribution.xml > pkgparts/distribution.xml
+          productbuild --distribution pkgparts/distribution.xml --resources pkg/resources \
+                       --package-path pkgparts --version "$V" "dist/TGLDmic-$V.pkg"
+          pkgutil --check-signature "dist/TGLDmic-$V.pkg" || true
+          pkgutil --expand "dist/TGLDmic-$V.pkg" prodcheck && ls -R prodcheck | head -30 && rm -rf prodcheck
 
       - uses: actions/upload-artifact@v4
         with:

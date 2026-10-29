@@ -109,3 +109,8 @@ TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_ST
   of the PCI device and holds "on" while streaming; DSP boots per recording session and is powered down
   after the last client. Also fixed: observer marked TGLDmic's own in6 as "used by HDA driver",
   blocking every recording after the first.
+* v0.4.4 regression: joining the PCI device's PM tree at load time (state 0, before AppleHDA attached)
+  let the function idle before AppleHDA initialized it -> no AppleHDA devices, GCTL 0, TGLDmic never
+  ready. Also learned: AppleHDA's idle state keeps the PCI function in D0 but holds the controller in
+  reset (CRST=0). v0.4.5: join PM only after the HDA driver attached, as *its* child (holding "on"
+  keeps it out of its idle/reset state while recording); reset-aware init; no PCI-level PM join.

@@ -23,6 +23,40 @@ static IOPMPowerState gPowerStates[2] = {
     { kIOPMPowerStateVersion1, kIOPMPowerOn | kIOPMDeviceUsable, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
+// Become a power child of the HDA driver, but only once it has attached (v0.4.4 joined the PCI device at
+// load time, before AppleHDA, and the function idled before AppleHDA could initialize it). While we hold
+// state 1 the HDA driver cannot enter its idle state, in which it holds the controller in reset (CRST=0)
+// and the DSP loses everything. Never joins the PCI device directly.
+void TGLDmic::joinPowerParent() {
+    if (pmJoined || !serviceMode) return;
+    IOService *parent = nullptr;
+    if (OSIterator *it = pci->getChildIterator(gIOServicePlane)) {
+        while (OSObject *o = it->getNextObject()) {
+            IOService *s = OSDynamicCast(IOService, o);
+            if (!s || s == this || s->isInactive()) continue;
+            const char *cn = s->getMetaClass()->getClassName();
+            if (cn && strnstr(const_cast<char *>(cn), "HDA", 64)) { parent = s; break; }
+        }
+        it->release();
+    }
+    if (!parent) {                                    // retry from the timer (every 2 s), give up after 60 s
+        if (++pmSearchTicks == 30) { LOG("PM: no HDA driver on this controller - no power hold (unsupported setup)"); pmSearchTicks = 1000; }
+        return;
+    }
+    PMinit();
+    parent->joinPMtree(this);
+    if (registerPowerDriver(this, gPowerStates, 2) != kIOReturnSuccess) {
+        PMstop();
+        LOG("PM: registerPowerDriver failed - running without power holds");
+        pmSearchTicks = 1000;
+        return;
+    }
+    pmParent = parent; pmParent->retain();
+    pmJoined = true;
+    changePowerStateTo(0);                             // idle until a client records
+    LOG("PM: power child of %s (power state %u)", parent->getMetaClass()->getClassName(), (unsigned)parent->getPowerState());
+}
+
 IOReturn TGLDmic::setPowerState(unsigned long state, IOService *) {
     unsigned long old = pmState;
     pmState = state;
@@ -61,6 +95,10 @@ bool TGLDmic::memoryDecoded() {
 bool TGLDmic::tryInit() {
     if (ready) return true;
     if (!memoryDecoded() || !inD0()) return false;
+    if (!(r32(HDA::GCTL) & 1)) {                     // CRST=0: HDA driver idle; registers read 0 until it wakes
+        if (!resetLogged) { LOG("controller held in reset (GCTL 0x%08x) - HDA driver idle", r32(HDA::GCTL)); resetLogged = true; }
+        return false;
+    }
     uint16_t gcap = r16(HDA::GCAP);
     if (gcap == 0xFFFF || gcap == 0) { badReads++; return false; }
     numOut = (gcap >> 12) & 0xF; numIn = (gcap >> 8) & 0xF; numBidi = (gcap >> 3) & 0x1F;
@@ -92,7 +130,7 @@ bool TGLDmic::start(IOService *provider) {
     if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.4.4 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.4.5 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
     if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready%s", captureRequested ? " + capture" : "",
@@ -116,17 +154,6 @@ bool TGLDmic::start(IOService *provider) {
     LOG("at start: PCI CMD 0x%04x, D0=%d", pci->configRead16(kIOPCIConfigCommand), inD0());
     if (!tryInit()) LOG("controller not decoded yet (AppleHDA not started?) - retrying from timer");
 
-    if (serviceMode) {
-        PMinit();
-        provider->joinPMtree(this);
-        if (registerPowerDriver(this, gPowerStates, 2) == kIOReturnSuccess) {
-            pmJoined = true;
-            changePowerStateTo(0);          // idle: don't keep the controller awake
-        } else {
-            PMstop();
-            LOG("PM: registerPowerDriver failed - running without power holds");
-        }
-    }
     workLoop = IOWorkLoop::workLoop();      // own loop: boot polling must not block the provider's
     if (workLoop) {
         gate = IOCommandGate::commandGate(this);
@@ -248,6 +275,7 @@ void TGLDmic::watchdog() {
 void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     auto self = OSDynamicCast(TGLDmic, owner);
     if (!self) return;
+    if (self->serviceMode && !self->pmJoined && self->pmSearchTicks < 1000) self->joinPowerParent();
     if (self->tryInit() && self->memoryDecoded() && self->inD0())
         self->snapshot(false);
     // Phase 2: one boot attempt ~20 s after the controller became usable (AppleHDA settled)
@@ -279,6 +307,7 @@ IOReturn TGLDmic::gatedShutdown(OSObject *o, void *, void *, void *, void *) {
 void TGLDmic::stop(IOService *provider) {
     if (gate) gate->runAction(gatedShutdown); else gatedShutdown(this, nullptr, nullptr, nullptr, nullptr);
     if (pmJoined) { PMstop(); pmJoined = false; }
+    OSSafeReleaseNULL(pmParent);
     if (gate) { if (workLoop) workLoop->removeEventSource(gate); OSSafeReleaseNULL(gate); }
     if (timer) {
         timer->cancelTimeout();

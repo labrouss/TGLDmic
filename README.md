@@ -1,4 +1,12 @@
-# TGLDmic
+<p align="center">
+  <img src="assets/tgldmic-icon-256.png" width="200" alt="TGLDmic logo">
+</p>
+
+<h1 align="center">TGLDmic</h1>
+<p align="center"><b>Tiger Lake microphone driver for macOS</b><br>
+Internal 4-mic array of the HP EliteBook 840 G8 via the Intel Smart Sound DSP (SOF)</p>
+
+> Unofficial community project. Not affiliated with or endorsed by Intel, HP or Apple.
 
 Internal microphone driver for the HP EliteBook 840 G8 hackintosh (Tiger Lake, 4-mic PDM array
 behind the Smart Sound DSP). Runs next to AppleHDA/AppleALC, which keep speakers and headset.
@@ -11,7 +19,8 @@ behind the Smart Sound DSP). Runs next to AppleHDA/AppleALC, which keep speakers
 | `captures/` | Reference captures (firmware boot, pipeline setup, test WAV) |
 | `kext/` | The kext (`make SDK=...`, or GitHub Actions) |
 | `hal/` | Core Audio HAL plug-in `TGLDmic.driver`, `tgldmic-probe`, install scripts |
-| `pkg/` | Installer scripts for `TGLDmic-<version>.pkg` |
+| `pkg/` | Installer: scripts, `distribution.xml`, background logo, welcome/conclusion pages |
+| `assets/` | Project icon (`tgldmic-icon-{256,512,1024}.png`, transparent) |
 | `docs/INSTALL.md` | End-user install and test steps (shipped in the build artifact) |
 
 ## Phase 1: read-only observer (default)
