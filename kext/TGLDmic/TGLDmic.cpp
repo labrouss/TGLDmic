@@ -72,10 +72,11 @@ bool TGLDmic::start(IOService *provider) {
     if (!pci) return false;
     pci->retain();
     readDsp = bootArg("-tgldmicdsp");
-    bootRequested = bootArg("-tgldmicboot");
+    captureRequested = bootArg("-tgldmiccap");
+    bootRequested = bootArg("-tgldmicboot") || captureRequested;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.2.5 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.3.0 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
 
@@ -153,7 +154,7 @@ void TGLDmic::snapshot(bool verbose) {
 }
 
 void TGLDmic::publish() {
-    setProperty("TGLDmicPhase", bootRequested ? 2ULL : 1ULL, 32);
+    setProperty("TGLDmicPhase", captureRequested ? 3ULL : bootRequested ? 2ULL : 1ULL, 32);
     setProperty("StreamsIn", numIn, 32);
     setProperty("StreamsOut", numOut, 32);
     setProperty("UsedStreamMask", everRunning, 32);
@@ -164,6 +165,16 @@ void TGLDmic::publish() {
     setProperty("BadReads", badReads, 32);
     setProperty("BootState", bootState, 32);
     if (bootResult[0]) setProperty("BootResult", bootResult);
+    if (captureRequested) {
+        setProperty("CaptureState", captureState, 32);
+        if (captureResult[0]) setProperty("CaptureResult", captureResult);
+        setProperty("CaptureBytes", capBytes, 64);
+        if (captureState) {
+            if (auto d = OSData::withBytes(chPeak, sizeof(chPeak))) { setProperty("CapturePeak", d); d->release(); }
+            if (auto d = OSData::withBytes(chMeanAbs, sizeof(chMeanAbs))) { setProperty("CaptureMeanAbs", d); d->release(); }
+        }
+        if (capSnap && capSnap->getLength()) setProperty("CaptureSnapshot", capSnap);
+    }
     if (logRing) { if (auto copy = OSArray::withArray(logRing)) { setProperty("Log", copy); copy->release(); } }
     if (ready && ppOffset && hda) setProperty("PPCTL", r32(ppOffset + HDA::PP_PPCTL), 32);
     if (ready && dsp) setProperty("ADSPCS", d32(DSP::ADSPCS), 32);
@@ -207,6 +218,7 @@ void TGLDmic::stop(IOService *provider) {
 }
 
 void TGLDmic::free() {
+    OSSafeReleaseNULL(capSnap);
     OSSafeReleaseNULL(logRing);
     OSSafeReleaseNULL(pci);
     super::free();

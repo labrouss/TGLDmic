@@ -6,6 +6,8 @@
 #include <IOKit/IOMemoryDescriptor.h>
 #include "DmaBuffer.hpp"
 
+struct IpcMsg;   // IpcReplay.hpp
+
 // Phase 1: read-only observer. Matches the HDA controller next to AppleHDA (own
 // IOMatchCategory, provider is never opened), maps BAR0 and records which stream
 // descriptors AppleHDA uses. Nothing is written to the hardware.
@@ -75,5 +77,21 @@ private:
     bool coreRun();
     void corePowerDown();
     bool bootDsp();
+
+    // ---- Phase 3: DMIC capture test (only with -tgldmiccap, implies boot) ----
+    bool captureRequested {false};
+    uint32_t captureState {0};        // 0 idle, 1 ok, 2 failed
+    char captureResult[96] {};
+    DmaBuffer ringBuf, ptBuf, capBdl;
+    OSData *capSnap {nullptr};         // 1 s of raw S32_LE 4ch 48 kHz audio, published as "CaptureSnapshot"
+    uint32_t chPeak[4] {}, chMeanAbs[4] {};
+    uint64_t capBytes {0};
+
+    bool ipcSend(const uint32_t *msg, uint32_t words, uint32_t *reply = nullptr, uint32_t replyWords = 0);
+    void ackDspNotification();
+    bool replay(const IpcMsg *list, uint32_t count, const char *phase);
+    bool prepareCaptureStream(uint32_t idx, uint32_t tag);
+    bool captureTest();
+    void capFail(const char *what, uint32_t value);
     void fail(const char *what, uint32_t value);
 };

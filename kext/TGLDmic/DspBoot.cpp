@@ -293,6 +293,7 @@ bool TGLDmic::bootDsp() {
         snprintf(bootResult, sizeof(bootResult), "OK FW_READY");
         bootState = 1;
         LOG("boot: SUCCESS - SOF firmware running (FW_READY)");
+        if (captureRequested) captureTest();
         if (!keepRunning) corePowerDown();
     } else {
         corePowerDown();

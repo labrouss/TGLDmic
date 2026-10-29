@@ -1,0 +1,205 @@
+// Phase 3: replay the Linux SOF IPC3 sequence for PCM 6 "DMIC" (pipeline 10) and capture 1 s
+// of 4-channel 48 kHz S32_LE audio from the internal mic array into an OSData snapshot.
+// Host side mirrors Linux hda_dsp_stream_hw_params() + hda_dsp_pcm_trigger(); all polled.
+#include "TGLDmic.hpp"
+#include "Regs.hpp"
+#include "IpcReplay.hpp"
+#include <IOKit/IOLib.h>
+
+#define LOG(fmt, ...) logLine(fmt, ##__VA_ARGS__)
+#define COUNT(a) (sizeof(a) / sizeof((a)[0]))
+
+namespace {
+constexpr uint32_t SD_CTL_INT_MASK = 0x1C, SD_TAG_MASK = 0xFu << 20;
+constexpr uint32_t VS_DPIB_BASE = 0x1084, VS_DPIB_STRIDE = 0x20;
+constexpr uint32_t SPB_SPBFCCTL = 0x04;
+constexpr uint32_t RING_BYTES = 0x10000, PERIOD_BYTES = 0x4000, PAGES = RING_BYTES / 4096;
+constexpr uint16_t FMT_48K_32BIT_4CH = 0x0043;       // BASE 48k, BITS=100 (32), CHAN=3
+constexpr uint32_t FRAME_BYTES = 16;                  // 4 ch x 4 bytes
+constexpr uint32_t SNAPSHOT_BYTES = 48000 * FRAME_BYTES; // 1 s
+constexpr uint32_t CAP_IN_INDEX = 6, CAP_TAG = 7;     // spare input descriptor (AppleHDA uses in0/in1)
+}
+
+void TGLDmic::capFail(const char *what, uint32_t value) {
+    snprintf(captureResult, sizeof(captureResult), "FAIL %s (0x%08x)", what, value);
+    LOG("cap: %s", captureResult);
+    captureState = 2;
+}
+
+void TGLDmic::ackDspNotification() {
+    uint32_t tdr = d32(DSP::HIPCTDR);
+    if (!(tdr & DSP::IPC_BUSY)) return;
+    LOG("cap: DSP notification 0x%08x (mbox hdr size %u cmd 0x%08x)", tdr & 0x7FFFFFFF,
+        d32(DSP::MBOX_UP), d32(DSP::MBOX_UP + 4));
+    dw32(DSP::HIPCTDR, tdr | DSP::IPC_BUSY);                  // W1C
+    dw32(DSP::HIPCTDA, d32(DSP::HIPCTDA) | DSP::IPC_DONE);
+}
+
+// IPC3 on cAVS 2.5: message in host_box (0xA0000), HIPCIDR = BUSY; DSP sets HIPCIDA.DONE and
+// writes the reply {size, cmd, error, ...} back into host_box.
+bool TGLDmic::ipcSend(const uint32_t *msg, uint32_t words, uint32_t *reply, uint32_t replyWords) {
+    if (d32(DSP::HIPCIDR) & DSP::IPC_BUSY) { LOG("cap: IPC channel busy before send"); return false; }
+    for (uint32_t i = 0; i < words; i++) dw32(DSP::MBOX_DOWN + 4 * i, msg[i]);
+    dw32(DSP::HIPCIDR, DSP::IPC_BUSY);
+    uint32_t a = 0;
+    for (uint32_t t = 0; t < 500000; t += 10) {
+        a = d32(DSP::HIPCIDA);
+        if (a & DSP::IPC_DONE) break;
+        ackDspNotification();
+        IODelay(10);
+    }
+    if (!(a & DSP::IPC_DONE)) { LOG("cap: IPC 0x%08x timeout, HIPCIDR 0x%08x", msg[1], d32(DSP::HIPCIDR)); return false; }
+    uint32_t rsize = d32(DSP::MBOX_DOWN), rcmd = d32(DSP::MBOX_DOWN + 4);
+    int32_t err = (int32_t)d32(DSP::MBOX_DOWN + 8);
+    for (uint32_t i = 0; reply && i < replyWords; i++) reply[i] = d32(DSP::MBOX_DOWN + 4 * i);
+    dw32(DSP::HIPCIDA, a | DSP::IPC_DONE);                    // W1C
+    if (err < 0) { LOG("cap: IPC 0x%08x -> error %d (reply size %u cmd 0x%08x)", msg[1], err, rsize, rcmd); return false; }
+    return true;
+}
+
+bool TGLDmic::replay(const IpcMsg *list, uint32_t count, const char *phase) {
+    for (uint32_t i = 0; i < count; i++) {
+        const IpcMsg &m = list[i];
+        uint32_t buf[64];
+        if (m.words > COUNT(buf)) { capFail("IPC message too large", m.words); return false; }
+        memcpy(buf, m.data, m.words * 4);
+        uint32_t reply[5] {};
+        if (m.patch == kPatchPcmParams) {
+            buf[kPcmParamPhy] = (uint32_t)ptBuf.iova;
+            buf[kPcmParamPages] = PAGES;
+            buf[kPcmParamSize] = RING_BYTES;
+            buf[kPcmParamTagCh] = (4u << 16) | CAP_TAG;
+            buf[kPcmParamPeriod] = PERIOD_BYTES;
+        }
+        if (!ipcSend(buf, m.words, reply, 5)) {
+            char what[48]; snprintf(what, sizeof(what), "%s[%u] %s", phase, i, m.name);
+            capFail(what, m.cmd); return false;
+        }
+        if (m.patch == kPatchPcmParams) LOG("cap: PCM_PARAMS ok, comp %u posn_offset 0x%x", reply[3], reply[4]);
+    }
+    LOG("cap: %s: %u IPC messages ok", phase, count);
+    return true;
+}
+
+bool TGLDmic::prepareCaptureStream(uint32_t idx, uint32_t tag) {
+    uint32_t sd = sdOffset(idx);
+    // page table for the DSP host component: 20-bit PFNs packed 2.5 bytes each (snd_sof_create_page_table)
+    uint8_t *pt = ptBuf.virt;
+    for (uint32_t i = 0; i < PAGES; i++) {
+        uint32_t pfn = (uint32_t)((ringBuf.iova + i * 4096ULL) >> 12);
+        uint8_t *p = pt + ((5 * i) >> 1);
+        uint32_t v = (i & 1) ? ((p[0] & 0xF) | (pfn << 4)) : pfn;
+        p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF;
+    }
+    struct Bdle { uint32_t lo, hi, len, ioc; };
+    auto bdl = reinterpret_cast<Bdle *>(capBdl.virt);
+    for (uint32_t i = 0; i < RING_BYTES / PERIOD_BYTES; i++) {
+        uint64_t a = ringBuf.iova + i * PERIOD_BYTES;
+        bdl[i] = { (uint32_t)a, (uint32_t)(a >> 32), PERIOD_BYTES, 0 };
+    }
+    ptBuf.sync(); capBdl.sync();
+
+    w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) | (1u << idx));   // decouple -> DSP
+    if (spbOffset) w32(spbOffset + SPB_SPBFCCTL, r32(spbOffset + SPB_SPBFCCTL) & ~(1u << idx));  // no SPIB for capture
+    if (!streamStopReset(sd)) { capFail("capture stream reset", r32(sd)); return false; }
+    w32(sd + HDA::SD_BDPL, 0); w32(sd + HDA::SD_BDPU, 0);
+    w32(sd, (r32(sd) & ~SD_TAG_MASK) | (tag << HDA::SD_CTL_TAG_SHIFT));
+    w32(sd + HDA::SD_CBL, RING_BYTES);
+    w16(sd + HDA::SD_FMT, FMT_48K_32BIT_4CH);
+    w16(sd + HDA::SD_LVI, RING_BYTES / PERIOD_BYTES - 1);
+    w32(sd + HDA::SD_BDPL, (uint32_t)capBdl.iova);
+    w32(sd + HDA::SD_BDPU, (uint32_t)(capBdl.iova >> 32));
+    LOG("cap: stream %u (sd 0x%x) tag %u ring %u B @iova 0x%llx, page table @0x%llx, bdl @0x%llx", idx, sd, tag,
+        RING_BYTES, (unsigned long long)ringBuf.iova, (unsigned long long)ptBuf.iova, (unsigned long long)capBdl.iova);
+    return true;
+}
+
+bool TGLDmic::captureTest() {
+    captureState = 0;
+    LOG("cap: === phase 3 DMIC capture test ===");
+    const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx), dpib = VS_DPIB_BASE + VS_DPIB_STRIDE * idx;
+    if (everRunning & (1u << idx)) { capFail("input stream 6 in use by HDA driver", idx); return false; }
+    if (!ringBuf.alloc(pci, RING_BYTES) || !ptBuf.alloc(pci, 4096) || !capBdl.alloc(pci, 4096)) {
+        capFail("DMA alloc", 0); ringBuf.release(); ptBuf.release(); capBdl.release(); return false;
+    }
+    OSSafeReleaseNULL(capSnap);
+    capSnap = OSData::withCapacity(SNAPSHOT_BYTES);
+    bool ok = false, started = false, setupDone = false;
+    do {
+        if (!capSnap) { capFail("snapshot alloc", 0); break; }
+        if (!prepareCaptureStream(idx, CAP_TAG)) break;
+        if (!replay(kIpc_setup, COUNT(kIpc_setup), "setup")) break;
+        setupDone = true;
+        // hda_dsp_pcm_trigger(START): host DMA first (wait FIFO ready), then IPC trigger
+        w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
+        uint32_t v;
+        bool fifoReady = pollHda(sd, 0x20000000, 0x20000000, 5000, &v);
+        LOG("cap: host DMA running, CTL 0x%08x (FIFORDY %s)", v, fifoReady ? "yes" : "no");
+        if (!replay(kIpc_start, COUNT(kIpc_start), "start")) break;
+        started = true;
+
+        // Stream for ~1.3 s: skip 0.25 s, then copy 1 s out of the ring as the DMA position advances.
+        uint32_t readPos = r32(dpib) % RING_BYTES, skip = 12000 * FRAME_BYTES, waited = 0;
+        uint64_t total = 0;
+        while (capSnap->getLength() < SNAPSHOT_BYTES && waited < 3000) {
+            IOSleep(10); waited += 10;
+            uint32_t pos = r32(dpib) % RING_BYTES;
+            uint32_t avail = (pos + RING_BYTES - readPos) % RING_BYTES;
+            avail -= avail % FRAME_BYTES;
+            if (!avail) continue;
+            total += avail;
+            while (avail) {
+                uint32_t chunk = min(avail, RING_BYTES - readPos);
+                if (skip) {
+                    uint32_t s = min(chunk, skip); skip -= s; readPos = (readPos + s) % RING_BYTES; avail -= s; continue;
+                }
+                uint32_t room = SNAPSHOT_BYTES - capSnap->getLength();
+                uint32_t take = min(chunk, room);
+                if (take) capSnap->appendBytes(ringBuf.virt + readPos, take);
+                readPos = (readPos + chunk) % RING_BYTES; avail -= chunk;
+            }
+            if (waited % 250 == 0)
+                LOG("cap: t=%ums DPIB %u LPIB %u CTL 0x%08x copied %u B", waited, r32(dpib), r32(sd + HDA::SD_LPIB),
+                    r32(sd), capSnap->getLength());
+        }
+        capBytes = total;
+        LOG("cap: streamed %llu bytes in %u ms (expect ~768 B/ms), snapshot %u B", (unsigned long long)total, waited,
+            capSnap->getLength());
+        if (capSnap->getLength() < SNAPSHOT_BYTES / 2) { capFail("DMA position did not advance", r32(dpib)); break; }
+
+        // per-channel peak and mean |x| over the snapshot (S32_LE, 4 ch interleaved)
+        auto s = static_cast<const int32_t *>(capSnap->getBytesNoCopy());
+        uint32_t frames = capSnap->getLength() / FRAME_BYTES;
+        uint64_t sum[4] {};
+        for (uint32_t f = 0; f < frames; f++)
+            for (uint32_t c = 0; c < 4; c++) {
+                int64_t x = s[f * 4 + c]; uint32_t a = (uint32_t)(x < 0 ? -x : x);
+                if (a > chPeak[c]) chPeak[c] = a;
+                sum[c] += a;
+            }
+        for (uint32_t c = 0; c < 4; c++) chMeanAbs[c] = frames ? (uint32_t)(sum[c] / frames) : 0;
+        LOG("cap: peak |x| ch0 %u ch1 %u ch2 %u ch3 %u (full scale 2147483647)", chPeak[0], chPeak[1], chPeak[2], chPeak[3]);
+        LOG("cap: mean |x| ch0 %u ch1 %u ch2 %u ch3 %u", chMeanAbs[0], chMeanAbs[1], chMeanAbs[2], chMeanAbs[3]);
+        bool signal = chMeanAbs[0] || chMeanAbs[1] || chMeanAbs[2] || chMeanAbs[3];
+        snprintf(captureResult, sizeof(captureResult), signal ? "OK %u frames, signal present" : "DMA OK but all-zero samples",
+                 frames);
+        captureState = signal ? 1 : 2;
+        ok = signal;
+    } while (false);
+
+    // hda_dsp_pcm_trigger(STOP) + hw_free: IPC stop, host DMA stop, PCM free, free widgets
+    if (started) replay(kIpc_stop, 1, "stop");
+    w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
+    pollHda(sd, HDA::SD_CTL_RUN, 0, 5000);
+    if (setupDone) {
+        if (started) replay(kIpc_stop + 1, COUNT(kIpc_stop) - 1, "pcm-free");
+        replay(kIpc_teardown, COUNT(kIpc_teardown), "teardown");
+    }
+    streamStopReset(sd);
+    w32(sd + HDA::SD_BDPL, 0); w32(sd + HDA::SD_BDPU, 0);
+    w32(sd, r32(sd) & ~SD_TAG_MASK);
+    w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) & ~(1u << idx));
+    ringBuf.release(); ptBuf.release(); capBdl.release();
+    LOG("cap: done: %s", captureResult);
+    return ok;
+}

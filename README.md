@@ -25,3 +25,13 @@ DSP using the highest output stream as code loader (no interrupts, all polled), 
 `FW_READY`, then powers the DSP core down again. `-tgldmickeep` leaves it running.
 Result: `BootState` (1 = OK, 2 = failed) and `BootResult` in `ioreg -l -w0 -c TGLDmic`.
 Test speakers/headset before and after the attempt.
+
+## Phase 3: DMIC capture test (opt-in)
+Boot arg `-tgldmiccap` (implies `-tgldmicboot`): after FW_READY, TGLDmic replays the 20 Linux IPC3
+setup messages for pipeline 10, runs input stream 6 (tag 7) decoupled into the DSP, captures 1 s of
+4-ch 48 kHz S32_LE audio, then tears everything down and powers the DSP off.
+
+    ioreg -a -l -w0 -c TGLDmic > tgldmic.plist
+    python3 tools/snapshot-to-wav.py tgldmic.plist dmic.wav     # WAV + per-channel levels
+
+Talk near the laptop during the first ~25 s after login.
