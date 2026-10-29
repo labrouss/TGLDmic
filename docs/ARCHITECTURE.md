@@ -9,7 +9,19 @@ and the headset jack. The DMIC is *not* reachable over the HDA link; it sits
 behind the audio DSP, which only runs with signed firmware (SOF `sof-tgl.ri`,
 Intel production key, IPC3).
 
-## Approach: hybrid, AppleHDA stays
+## Who owns the HDA controller (varies per macOS version)
+| macOS | Speakers / headset | Notes |
+|---|---|---|
+| Ventura 13, Sonoma 14 | AppleHDA + AppleALC | verified: AppleHDA uses in0/in1 (tags 1/2), out0 (tag 1) |
+| Sequoia 15 | HDA-Universal (AppleALC capped at MaxKernel 23.99.99 in this EFI) | AppleHDA still ships in 15 |
+| Tahoe 26 | HDA-Universal / VoodooHDA / reinstalled AppleHDA | AppleHDA.kext removed from the OS since 26 beta 2 |
+
+So TGLDmic must **not assume AppleHDA**: it observes which stream descriptors the current owner
+uses and picks free ones, and it never relies on the owner's power management. If *no* driver
+owns the controller, TGLDmic has to bring it up itself (memory/bus-master enable, GCTL.CRST),
+which is a separate, later code path.
+
+## Approach: hybrid, the existing HDA driver stays
 ```
              ┌──────────── HDA controller 00:1f.3 ────────────┐
  AppleHDA ──►│ BAR0: CORB/RIRB, coupled streams (playback,     │──► ALC285
@@ -36,10 +48,23 @@ Intel production key, IPC3).
 | 1 | Read-only probe kext next to AppleHDA | Logs GCAP/PPCAP/ADSPCS, no audio regression |
 | 2 | DSP boot on macOS | FW_READY received; speakers still work |
 | 3 | IPC replay + decoupled input DMA | PCM samples with non-zero RMS in a debug buffer |
-| 4 | IOAudioEngine input device | Mic visible in Sound settings, records in QuickTime |
+| 4 | AudioServerPlugIn (user-space Core Audio driver) fed by the kext | Mic visible in Sound settings, records in QuickTime |
 | 5 | Robustness | Survives AppleHDA reset, sleep/wake, gain control |
 
+## Exposing the mic to macOS: AudioServerPlugIn, not IOAudioFamily
+IOAudioEngine kexts depend on IOAudioFamily, whose future on Tahoe is uncertain (it ships with the
+AppleHDA stack that Apple is dropping). The Core Audio-supported way is a user-space
+**AudioServerPlugIn** (HAL driver, like BlackHole) in `/Library/Audio/Plug-Ins/HAL`:
+```
+TGLDmic.kext  ──(IOUserClient: map 64 KB DMA ring + read DPIB position)──►  TGLDmic.driver (HAL plug-in)  ──►  coreaudiod
+```
+* The ring buffer the DSP writes into is mapped read-only into the plug-in, so there's no copy in the kernel.
+* The plug-in timestamps from the DMA position and does the 4ch→2ch (or 4ch exposed) mapping and gain.
+* The same plug-in works on Ventura through Tahoe, whichever driver owns the speakers.
+
 ## Main risks
+0. The controller owner differs per macOS version (see above): stream usage and power
+   management must be re-checked on Sequoia/Tahoe with HDA-Universal.
 1. AppleHDA controller reset (CRST) on init/sleep wipes PP state → TGLDmic
    must re-arm after AppleHDA and on every power-state change.
 2. Whether a coupled AppleHDA stream and a decoupled DSP stream can run at

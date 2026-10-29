@@ -29,6 +29,7 @@ inline uint32_t CRST(uint32_t m) { return m; }
 inline uint32_t CSTALL(uint32_t m) { return m << 8; }
 constexpr uint32_t XMAN_MAGIC = 0x6e614d58;                           // "XMan"
 constexpr uint32_t VS_D0I3C = 0x104A, D0I3C_I3 = 1u << 2;            // 8-bit
+constexpr uint32_t SPB_SPBFCCTL = 0x04, SPB_SPIB_BASE = 0x08, SPB_SPIB_STRIDE = 0x08;  // in SPB capability
 constexpr uint32_t VS_DPIB_BASE = 0x1084, VS_DPIB_STRIDE = 0x20;     // DMA position in decoupled mode
 }
 
@@ -110,6 +111,20 @@ bool TGLDmic::prepareLoaderStream(uint32_t idx, uint32_t tag, size_t fwBytes) {
     w16(sd + HDA::SD_LVI, 1);
     w32(sd + HDA::SD_BDPL, (uint32_t)bdlBuf.iova);
     w32(sd + HDA::SD_BDPU, (uint32_t)(bdlBuf.iova >> 32));
+    // Linux hda_data_stream_prepare(): enable SPIB for the loader stream with the full size.
+    // With SPIB enabled and SPIB = 0 the DMA engine fetches nothing.
+    if (spbOffset) {
+        uint32_t spib = spbOffset + SPB_SPIB_BASE + SPB_SPIB_STRIDE * idx;
+        uint32_t ctl0 = r32(spbOffset + SPB_SPBFCCTL), val0 = r32(spib);
+        w32(spbOffset + SPB_SPBFCCTL, ctl0 | (1u << idx));
+        w32(spib, (uint32_t)fwBytes);
+        LOG("boot: SPIB: SPBFCCTL 0x%08x -> 0x%08x, SPIB[%u] %u -> %u, MAXFIFO %u", ctl0,
+            r32(spbOffset + SPB_SPBFCCTL), idx, val0, r32(spib), r32(spib + 4));
+    } else {
+        LOG("boot: no SPB capability");
+    }
+    LOG("boot: PPCTL 0x%08x (PROCEN bit %u %s)", r32(ppOffset + HDA::PP_PPCTL), idx,
+        (r32(ppOffset + HDA::PP_PPCTL) & (1u << idx)) ? "set" : "NOT set");
     LOG("boot: loader stream %u (sd 0x%x) tag %u, fw %zu bytes @iova 0x%llx, bdl @0x%llx",
         idx, sd, tag, fwBytes, (unsigned long long)clBuf.iova, (unsigned long long)bdlBuf.iova);
     return true;
@@ -117,6 +132,10 @@ bool TGLDmic::prepareLoaderStream(uint32_t idx, uint32_t tag, size_t fwBytes) {
 
 void TGLDmic::releaseLoaderStream(uint32_t idx) {
     uint32_t sd = sdOffset(idx);
+    if (spbOffset) {
+        w32(spbOffset + SPB_SPIB_BASE + SPB_SPIB_STRIDE * idx, 0);
+        w32(spbOffset + SPB_SPBFCCTL, r32(spbOffset + SPB_SPBFCCTL) & ~(1u << idx));
+    }
     streamStopReset(sd);
     w32(sd + HDA::SD_BDPL, 0); w32(sd + HDA::SD_BDPU, 0);
     w32(sd, r32(sd) & ~SD_TAG_MASK);
@@ -183,6 +202,13 @@ bool TGLDmic::bootDsp() {
 
     if (!clBuf.alloc(pci, fwBytes) || !bdlBuf.alloc(pci, 4096)) { fail("DMA alloc (<4GB contiguous)", 0); return false; }
     memcpy(clBuf.virt, kSofTglRi + skip, fwBytes);
+    {
+        IOMapper *m = IOMapper::copyMapperForDevice(pci);
+        LOG("boot: DMA mapper %s, fw phys 0x%llx -> iova 0x%llx", m ? m->getMetaClass()->getClassName() : "none",
+            (unsigned long long)clBuf.mem->getPhysicalSegment(0, nullptr, kIOMemoryMapperNone),
+            (unsigned long long)clBuf.iova);
+        OSSafeReleaseNULL(m);
+    }
 
     // DMA needs PCI bus mastering; AppleHDA may only enable it while it plays.
     uint16_t cmd = pci->configRead16(kIOPCIConfigCommand);
@@ -226,7 +252,12 @@ bool TGLDmic::bootDsp() {
         bool entered = pollDsp(DSP::ROM_STATUS, FSR_MASK, FSR_FW_ENTERED, 3000000, &v);
         uint32_t lpib = r32(sd + HDA::SD_LPIB), dp = r32(dpib), ctl = r32(sd);
         w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
-        if (!entered) { fail("FW_ENTERED", v); LOG("boot: loader CTL 0x%08x LPIB %u DPIB %u of %zu", ctl, lpib, dp, fwBytes); break; }
+        if (!entered) {
+            fail("FW_ENTERED", v);
+            LOG("boot: loader CTL 0x%08x LPIB %u DPIB %u of %zu, INTSTS 0x%08x, GCTL 0x%08x", ctl, lpib, dp, fwBytes,
+                r32(HDA::INTSTS), r32(HDA::GCTL));
+            break;
+        }
         LOG("boot: code loader FW_ENTERED, FSR 0x%08x, LPIB %u DPIB %u", v, lpib, dp);
         // FW_READY arrives as a DSP->host IPC in HIPCTDR
         if (!pollDsp(DSP::HIPCTDR, DSP::IPC_BUSY, DSP::IPC_BUSY, 1000000, &v)) { fail("FW_READY (HIPCTDR)", v); break; }
