@@ -310,11 +310,12 @@ static Boolean HasPropertyImpl(AudioServerPlugInDriverRef inDriver, AudioObjectI
         case kAudioDevicePropertyDeviceIsRunning: case kAudioObjectPropertyControlList:
         case kAudioDevicePropertyNominalSampleRate: case kAudioDevicePropertyAvailableNominalSampleRates:
         case kAudioDevicePropertyIsHidden: case kAudioDevicePropertyZeroTimeStampPeriod: case kAudioDevicePropertyStreams:
-            return true;
+        // Answered in every scope, as in Apple's NullAudio: the HAL queries e.g. the output-scope
+        // safety offset even on an input-only device, and drops the device if that call fails.
         case kAudioDevicePropertyDeviceCanBeDefaultDevice: case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
         case kAudioDevicePropertyLatency: case kAudioDevicePropertySafetyOffset:
         case kAudioDevicePropertyPreferredChannelsForStereo: case kAudioDevicePropertyPreferredChannelLayout:
-            return a->mScope == kAudioObjectPropertyScopeInput || a->mScope == kAudioObjectPropertyScopeGlobal;
+            return true;
         }
         return false;
     case kObjectID_Stream_Input:
@@ -369,7 +370,8 @@ static OSStatus GetPropertyDataSizeImpl(AudioServerPlugInDriverRef inDriver, Aud
     case kAudioDevicePropertyModelUID: case kAudioPlugInPropertyResourceBundle:
         *out = sizeof(CFStringRef); return 0;
     case kAudioObjectPropertyOwnedObjects:
-        *out = (obj == kObjectID_PlugIn ? 1 : obj == kObjectID_Device ? 2 : 0) * sizeof(AudioObjectID); return 0;
+        *out = (obj == kObjectID_PlugIn ? 1 : (obj == kObjectID_Device && a->mScope != kAudioObjectPropertyScopeOutput) ? 2 : 0)
+               * sizeof(AudioObjectID); return 0;
     case kAudioPlugInPropertyDeviceList: case kAudioDevicePropertyRelatedDevices:
         *out = sizeof(AudioObjectID); return 0;
     case kAudioDevicePropertyStreams:
@@ -463,8 +465,8 @@ static OSStatus GetPropertyDataImpl(AudioServerPlugInDriverRef inDriver, AudioOb
             NEED(sizeof(UInt32)); pthread_mutex_lock(&gStateMutex); *u32 = gIORunning > 0; pthread_mutex_unlock(&gStateMutex); return 0;
         case kAudioDevicePropertyDeviceCanBeDefaultDevice: NEED(sizeof(UInt32)); *u32 = a->mScope != kAudioObjectPropertyScopeOutput; return 0;
         case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice: NEED(sizeof(UInt32)); *u32 = 0; return 0;
-        case kAudioDevicePropertyLatency: NEED(sizeof(UInt32)); *u32 = kLatency; return 0;
-        case kAudioDevicePropertySafetyOffset: NEED(sizeof(UInt32)); *u32 = kSafetyOffset; return 0;
+        case kAudioDevicePropertyLatency: NEED(sizeof(UInt32)); *u32 = a->mScope == kAudioObjectPropertyScopeOutput ? 0 : kLatency; return 0;
+        case kAudioDevicePropertySafetyOffset: NEED(sizeof(UInt32)); *u32 = a->mScope == kAudioObjectPropertyScopeOutput ? 0 : kSafetyOffset; return 0;
         case kAudioDevicePropertyNominalSampleRate: NEED(sizeof(Float64)); *static_cast<Float64 *>(outData) = kSampleRate; return 0;
         case kAudioDevicePropertyAvailableNominalSampleRates: {
             *outDataSize = inDataSize >= sizeof(AudioValueRange) ? sizeof(AudioValueRange) : 0;
