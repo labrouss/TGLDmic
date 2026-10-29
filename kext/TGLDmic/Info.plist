@@ -31,7 +31,7 @@
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 			<key>IOPCIPrimaryMatch</key>
-			<string>0xa0c88086</string>
+			<string>0xa0c88086 0x34c88086</string>
 			<key>IOProbeScore</key>
 			<integer>100</integer>
 			<key>IOUserClientClass</key>

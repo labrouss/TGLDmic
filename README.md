@@ -16,6 +16,7 @@ speakers and headset.
 | | |
 |---|---|
 | Matches | Intel Smart Sound DSP `8086:A0C8` (Tiger Lake **LP**: 11th-gen Core UP3/UP4 laptops) |
+| Device-id spoof | Also matches `34C8` (the usual OpenCore `device-id` spoof for AppleALC); `probe()` then checks the **physical** ID in PCI config space and only attaches to real `A0C8` |
 | Not supported | Tiger Lake-H `8086:43C8` (needs `sof-tgl-h.ri`), Ice Lake and older, Alder Lake and newer |
 | Reference machine | HP EliteBook 840 G8 (4 PDM mics, ALC285): **tested** on Ventura |
 | Other Tiger Lake laptops | Expected to work when the NHLT describes a 2- or 4-mic PDM array on DMIC0; **untested**, reports welcome |
