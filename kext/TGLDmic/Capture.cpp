@@ -151,7 +151,12 @@ bool TGLDmic::dspAlive(bool logReason) {
 bool TGLDmic::pipelineStart() {
     if (streaming) return true;
     const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx);
-    if (everRunning & (1u << idx)) { capFail("input stream 6 in use by HDA driver", idx); return false; }
+    // Refuse only if the HDA driver itself is running this descriptor right now (RUN set while it is
+    // still coupled to the link). A past observation is not enough: it may have been our own stream.
+    if ((r32(sd) & HDA::SD_CTL_RUN) && !(r32(ppOffset + HDA::PP_PPCTL) & (1u << idx))) {
+        capFail("input stream 6 in use by HDA driver", idx); return false;
+    }
+    everRunning &= ~(1u << idx);
     if (!ensureCaptureBuffers()) { capFail("DMA alloc", 0); return false; }
     bzero(ringBuf.virt, ringBuf.size);
     if (!prepareCaptureStream(idx, CAP_TAG)) return false;
@@ -190,14 +195,26 @@ IOReturn TGLDmic::gatedStart(OSObject *o, void *, void *, void *, void *) {
     auto self = OSDynamicCast(TGLDmic, o);
     if (!self) return kIOReturnBadArgument;
     if (self->startCount++ > 0 && self->streaming) return kIOReturnSuccess;
-    if (!self->ready) { self->startCount--; return kIOReturnNotReady; }
+    if (!self->ready || !self->holdPower()) {
+        self->startCount--;
+        if (self->startCount == 0) self->releasePower();
+        self->LOG("svc: start refused (controller %s)", self->ready ? "did not reach D0" : "not ready");
+        return kIOReturnNotReady;
+    }
     if (!self->dspAlive(true)) {
         self->LOG("svc: DSP not running - booting");
         self->keepRunning = true;
-        if (!self->bootDsp()) { self->startCount--; self->publish(); return kIOReturnNoDevice; }
+        if (!self->bootDsp()) {
+            self->startCount--;
+            if (self->startCount == 0) { self->keepRunning = false; self->releasePower(); }
+            self->publish();
+            return kIOReturnNoDevice;
+        }
     }
     bool ok = self->pipelineStart();
-    if (!ok) self->startCount--;
+    if (!ok && --self->startCount == 0) {
+        self->corePowerDown(); self->gating(true); self->keepRunning = false; self->releasePower();
+    }
     self->LOG("svc: start (clients %u) -> %s", self->startCount, ok ? "streaming" : self->captureResult);
     self->publish();
     return ok ? kIOReturnSuccess : kIOReturnIOError;
@@ -207,12 +224,45 @@ IOReturn TGLDmic::gatedStop(OSObject *o, void *, void *, void *, void *) {
     auto self = OSDynamicCast(TGLDmic, o);
     if (!self) return kIOReturnBadArgument;
     if (self->startCount == 0) return kIOReturnSuccess;
-    if (--self->startCount == 0 && self->streaming) {
-        self->pipelineStop();
-        self->LOG("svc: stopped (no clients)");
+    if (--self->startCount == 0) {
+        // Last client: stop the pipeline, power the DSP down cleanly, let the controller idle again.
+        if (self->streaming || self->setupDone) self->pipelineStop();
+        self->corePowerDown();
+        self->gating(true);
+        self->keepRunning = false;
+        self->releasePower();
+        self->LOG("svc: stopped (no clients), DSP powered down, power released");
         self->publish();
     }
     return kIOReturnSuccess;
+}
+
+// System sleep / parent power-down while streaming: the DSP will lose state, so stop cleanly.
+IOReturn TGLDmic::gatedPowerLost(OSObject *o, void *, void *, void *, void *) {
+    auto self = OSDynamicCast(TGLDmic, o);
+    if (!self) return kIOReturnBadArgument;
+    if (self->streaming || self->setupDone) {
+        self->LOG("svc: power going down while streaming - stopping pipeline");
+        self->pipelineStop();
+        self->corePowerDown();
+        self->gating(true);
+    }
+    return kIOReturnSuccess;
+}
+
+bool TGLDmic::holdPower() {
+    if (pmJoined && pmState != 1) changePowerStateTo(1);
+    for (uint32_t t = 0; t < 1000; t += 10) {
+        if (memoryDecoded() && inD0() && r32(HDA::GCTL) != 0xFFFFFFFF && (r32(HDA::GCTL) & 1)) return true;
+        IOSleep(10);
+    }
+    LOG("svc: controller still not usable after 1 s (CMD 0x%04x D0 %d GCTL 0x%08x)",
+        pci->configRead16(kIOPCIConfigCommand), inD0(), memoryDecoded() ? r32(HDA::GCTL) : 0);
+    return false;
+}
+
+void TGLDmic::releasePower() {
+    if (pmJoined) changePowerStateTo(0);
 }
 
 IOReturn TGLDmic::gatedEnsureBuffers(OSObject *o, void *, void *, void *, void *) {

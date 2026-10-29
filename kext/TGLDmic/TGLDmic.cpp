@@ -18,6 +18,18 @@ static bool bootArg(const char *name) {
     return PE_parse_boot_argn(name, buf, sizeof(buf));
 }
 
+static IOPMPowerState gPowerStates[2] = {
+    { kIOPMPowerStateVersion1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { kIOPMPowerStateVersion1, kIOPMPowerOn | kIOPMDeviceUsable, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0 },
+};
+
+IOReturn TGLDmic::setPowerState(unsigned long state, IOService *) {
+    unsigned long old = pmState;
+    pmState = state;
+    if (state == 0 && old == 1 && gate && (streaming || setupDone)) gate->runAction(gatedPowerLost);
+    return kIOPMAckImplied;
+}
+
 IOService *TGLDmic::probe(IOService *provider, SInt32 *score) {
     if (bootArg("-tgldmicoff")) return nullptr;
     auto dev = OSDynamicCast(IOPCIDevice, provider);
@@ -75,12 +87,12 @@ bool TGLDmic::start(IOService *provider) {
     captureRequested = bootArg("-tgldmiccap");
     serviceMode = bootArg("-tgldmic") && !captureRequested;
     bootRequested = bootArg("-tgldmicboot") || captureRequested || serviceMode;
-    if (serviceMode) { keepRunning = true; bootDelaySec = 10; }
+    if (serviceMode) { keepRunning = false; bootDelaySec = 10; }   // boot-time boot = self-test, then power down
     uint32_t delay = 0;
     if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.4.3 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.4.4 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
     if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready%s", captureRequested ? " + capture" : "",
@@ -104,6 +116,17 @@ bool TGLDmic::start(IOService *provider) {
     LOG("at start: PCI CMD 0x%04x, D0=%d", pci->configRead16(kIOPCIConfigCommand), inD0());
     if (!tryInit()) LOG("controller not decoded yet (AppleHDA not started?) - retrying from timer");
 
+    if (serviceMode) {
+        PMinit();
+        provider->joinPMtree(this);
+        if (registerPowerDriver(this, gPowerStates, 2) == kIOReturnSuccess) {
+            pmJoined = true;
+            changePowerStateTo(0);          // idle: don't keep the controller awake
+        } else {
+            PMstop();
+            LOG("PM: registerPowerDriver failed - running without power holds");
+        }
+    }
     workLoop = IOWorkLoop::workLoop();      // own loop: boot polling must not block the provider's
     if (workLoop) {
         gate = IOCommandGate::commandGate(this);
@@ -139,7 +162,13 @@ void TGLDmic::walkCapabilities() {
 void TGLDmic::snapshot(bool verbose) {
     uint32_t total = numIn + numOut + numBidi;
     if (total > 30) total = 30;
+    // Decoupled descriptors (PPCTL PROCEN) feed the DSP: those are TGLDmic's own streams, never the
+    // HDA driver's link streams. Also skip our capture descriptor while we own it.
+    uint32_t ours = ppOffset ? (r32(ppOffset + HDA::PP_PPCTL) & 0x3FFFFFFF) : 0;
+    if (ours == 0x3FFFFFFF) ours = 0;                    // all-ones read: ignore
+    if (streaming || setupDone) ours |= 1u << 6;
     for (uint32_t i = 0; i < total; i++) {
+        if (ours & (1u << i)) continue;
         uint32_t base = HDA::SD_BASE + i * HDA::SD_STRIDE;
         uint32_t ctl = r32(base + HDA::SD_CTL);
         if (ctl == 0xFFFFFFFF) { badReads++; return; }   // controller went away (D3/reset): skip this sample
@@ -167,6 +196,7 @@ void TGLDmic::publish() {
         setProperty("ServiceClients", startCount, 32);
         setProperty("Streaming", streaming);
         setProperty("StreamGeneration", generation, 64);
+        setProperty("PowerHold", pmState == 1);
     }
     setProperty("StreamsIn", numIn, 32);
     setProperty("StreamsOut", numOut, 32);
@@ -248,6 +278,7 @@ IOReturn TGLDmic::gatedShutdown(OSObject *o, void *, void *, void *, void *) {
 
 void TGLDmic::stop(IOService *provider) {
     if (gate) gate->runAction(gatedShutdown); else gatedShutdown(this, nullptr, nullptr, nullptr, nullptr);
+    if (pmJoined) { PMstop(); pmJoined = false; }
     if (gate) { if (workLoop) workLoop->removeEventSource(gate); OSSafeReleaseNULL(gate); }
     if (timer) {
         timer->cancelTimeout();

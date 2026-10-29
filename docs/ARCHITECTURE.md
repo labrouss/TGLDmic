@@ -104,3 +104,8 @@ TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_ST
 * Open: the DSP was not running when the first client connected (state 0x4); the user client re-booted
   it on demand (~120 ms). To check in phase 5: is the boot-time boot skipped, or does the HDA driver's
   idle power management (D3) power the DSP down?
+* v0.4.3 findings: DSP found at ADSPCS reset default 0x0f0f with GCTL 0x101 = D3->D0 cycle by the HDA
+  driver's idle PM (AppleHDA doesn't know about the DSP stream). v0.4.4: TGLDmic is an IOKit PM child
+  of the PCI device and holds "on" while streaming; DSP boots per recording session and is powered down
+  after the last client. Also fixed: observer marked TGLDmic's own in6 as "used by HDA driver",
+  blocking every recording after the first.

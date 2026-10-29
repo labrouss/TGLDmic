@@ -24,6 +24,7 @@ public:
     IOMemoryDescriptor *ringMemory();             // retained; nullptr if not allocated
     uint32_t stateBits();                         // bit0 dsp up, bit1 streaming, bit2 service mode
     IOService *probe(IOService *provider, SInt32 *score) override;
+    IOReturn setPowerState(unsigned long state, IOService *device) override;
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
     void free() override;
@@ -125,6 +126,13 @@ private:
     static IOReturn gatedStop(OSObject *o, void *, void *, void *, void *);
     static IOReturn gatedEnsureBuffers(OSObject *o, void *, void *, void *, void *);
     static IOReturn gatedShutdown(OSObject *o, void *, void *, void *, void *);
+    static IOReturn gatedPowerLost(OSObject *o, void *, void *, void *, void *);
+    // Power management: TGLDmic is a PM child of the HDA PCI device. While a client records we hold
+    // "on" (state 1), so the HDA driver's idle D3 cannot reset the DSP mid-stream.
+    bool pmJoined {false};
+    unsigned long pmState {0};
+    bool holdPower();                 // request state 1 and wait for D0 + memory decoding
+    void releasePower();
     void capFail(const char *what, uint32_t value);
     void fail(const char *what, uint32_t value);
 };

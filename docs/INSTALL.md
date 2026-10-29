@@ -1,4 +1,4 @@
-# TGLDmic 0.4.3: internal microphone for the HP EliteBook 840 G8 (macOS)
+# TGLDmic 0.4.4: internal microphone for the HP EliteBook 840 G8 (macOS)
 
 Each build produces two files:
 
@@ -13,7 +13,7 @@ Each build produces two files:
 3. Reboot. About 10 s after the controller comes up the DSP boots and stays running:
 
        ioreg -l -w0 -c TGLDmic | grep -E '"BootResult"|"TGLDmicPhase"|"Streaming"'
-       # expect: BootResult = "OK FW_READY", TGLDmicPhase = 4, Streaming = No
+       # expect: BootResult = "OK FW_READY", TGLDmicPhase = 4, Streaming = No, PowerHold = No
 
 ## 2. Test the kernel path first
     ./tgldmic-probe 3 probe.wav
@@ -42,8 +42,10 @@ the input level meter should move. QuickTime → File → New Audio Recording ca
     ioreg -l -w0 -c TGLDmic          # "Log" property: the kext's last 128 lines
 
 ## Known limits
-* System sleep isn't handled yet (this machine's S3 resume doesn't work anyway).
-* If the HDA driver resets the controller, the next recording reboots the DSP automatically.
+* The DSP is powered only while something records: the first ~120 ms of each new recording session
+  boot the DSP. While recording, TGLDmic holds the HDA PCI device in D0 (IOKit power child), so the
+  HDA driver's idle power-down cannot reset the DSP mid-stream.
+* System sleep while recording stops the stream cleanly; recording again after wake re-boots the DSP.
 * Tested on Ventura only. Sequoia and Tahoe (HDA-Universal) still need the phase 1 stream check.
 
 ## Remove

@@ -202,7 +202,9 @@ bool TGLDmic::bootDsp() {
 
     // Spare output stream: highest output descriptor (AppleHDA starts from output 0)
     uint32_t outIdx = numOut - 1, idx = numIn + outIdx, tag = outIdx + 1;
-    if (everRunning & (1u << idx)) { fail("spare output stream in use by AppleHDA", idx); return false; }
+    if ((r32(sdOffset(idx)) & HDA::SD_CTL_RUN) && !(r32(ppOffset + HDA::PP_PPCTL) & (1u << idx))) {
+        fail("spare output stream in use by the HDA driver", idx); return false;
+    }
 
     if (!clBuf.alloc(pci, fwBytes) || !bdlBuf.alloc(pci, 4096)) { fail("DMA alloc (<4GB contiguous)", 0); return false; }
     memcpy(clBuf.virt, kSofTglRi + skip, fwBytes);

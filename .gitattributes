@@ -1,0 +1,4 @@
+# Shell/installer scripts must keep LF endings (CRLF breaks the #! line and makes Installer fail)
+*.sh            text eol=lf
+pkg/scripts/*   text eol=lf
+*.py            text eol=lf

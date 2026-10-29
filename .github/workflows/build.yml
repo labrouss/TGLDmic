@@ -48,10 +48,24 @@ jobs:
           pkgbuild --analyze --root "$ROOT" component.plist
           plutil -replace 0.BundleIsRelocatable -bool NO component.plist
           plutil -replace 0.BundleOverwriteAction -string upgrade component.plist
-          pkgbuild --root "$ROOT" --component-plist component.plist --scripts pkg/scripts \
+          # Normalize installer scripts: LF line endings, a #!/bin/bash first line, executable.
+          # (CRLF or a missing +x makes Installer fail with only "The installation failed".)
+          mkdir -p pkgscripts
+          for s in preinstall postinstall; do
+            tr -d '\r' < pkg/scripts/$s | sed '/^#!/d' > body.tmp
+            { echo '#!/bin/bash'; cat body.tmp; } > pkgscripts/$s
+            chmod 755 pkgscripts/$s
+            head -1 pkgscripts/$s | od -c | head -1
+            bash -n pkgscripts/$s
+          done
+          pkgbuild --root "$ROOT" --component-plist component.plist --scripts pkgscripts \
                    --identifier com.labrouss.TGLDmic.driver.pkg --version "$V" --install-location / \
                    "dist/TGLDmic-$V.pkg"
           pkgutil --payload-files "dist/TGLDmic-$V.pkg"
+          # verify what ended up inside the package
+          pkgutil --expand "dist/TGLDmic-$V.pkg" pkgcheck
+          ls -l pkgcheck/Scripts 2>/dev/null || (cd pkgcheck && mkdir s && cd s && gzip -dc ../Scripts | cpio -i 2>/dev/null; ls -l)
+          rm -rf pkgcheck
 
       - uses: actions/upload-artifact@v4
         with:
