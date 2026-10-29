@@ -1,5 +1,6 @@
 #include "TGLDmic.hpp"
 #include "Regs.hpp"
+#include "TGLDmicShared.h"
 #include <IOKit/IOLib.h>
 #include <libkern/version.h>
 
@@ -130,8 +131,8 @@ bool TGLDmic::start(IOService *provider) {
     if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.4.5 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
-        provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
+    LOG("TGLDmic v%s on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+        kTGLDmicVersionString, provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
     if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready%s", captureRequested ? " + capture" : "",
                            bootDelaySec, serviceMode ? " (service mode: DSP stays up, mic exposed to Core Audio)" : "");
@@ -218,6 +219,8 @@ void TGLDmic::snapshot(bool verbose) {
 }
 
 void TGLDmic::publish() {
+    setProperty("TGLDmicVersion", kTGLDmicVersionString);
+    setProperty("TGLDmicInterface", (unsigned long long)kTGLDmicInterfaceVersion, 32);
     setProperty("TGLDmicPhase", serviceMode ? 4ULL : captureRequested ? 3ULL : bootRequested ? 2ULL : 1ULL, 32);
     if (serviceMode) {
         setProperty("ServiceClients", startCount, 32);

@@ -6,6 +6,42 @@
     <welcome file="welcome.html" mime-type="text/html"/>
     <conclusion file="conclusion.html" mime-type="text/html"/>
     <options customize="never" require-scripts="true" hostArchitectures="x86_64"/>
+    <installation-check script="tgldmic_check()"/>
+    <script><![CDATA[
+var PKG_VERSION = '@VERSION@';
+var PKG_INTERFACE = 1;
+function warn(t, m) { my.result.type = 'Warning'; my.result.title = t; my.result.message = m; return false; }
+function stop(t, m) { my.result.type = 'Fatal';   my.result.title = t; my.result.message = m; return false; }
+function tgldmic_check() {
+    var objs = [];
+    try { objs = system.ioregistry.matchingClass('TGLDmic') || []; } catch (e) { objs = []; }
+    if (objs.length == 0)
+        return warn('TGLDmic kext is not loaded',
+            'No TGLDmic driver is running. Add TGLDmic.kext ' + PKG_VERSION + ' to OpenCore (Kernel > Add), ' +
+            'add boot-arg -tgldmic and reboot. You can install the audio plug-in now; ' +
+            'the microphone appears after that reboot.');
+    var o = objs[0];
+    var kver = o['TGLDmicVersion'];
+    var kif  = o['TGLDmicInterface'];
+    if (kver == undefined || kif == undefined)
+        return warn('TGLDmic kext version unknown',
+            'The loaded TGLDmic kext is older than 0.4.6 and does not report its version. ' +
+            'Update TGLDmic.kext in OpenCore to ' + PKG_VERSION + ' and reboot so the two parts match.');
+    if (parseInt(kif) != PKG_INTERFACE)
+        return stop('TGLDmic kext does not match',
+            'Loaded kext ' + kver + ' uses interface ' + kif + '; this plug-in needs interface ' + PKG_INTERFACE +
+            '. Replace TGLDmic.kext in OpenCore with version ' + PKG_VERSION + ', reboot, then run this installer again.');
+    if (('' + kver) != PKG_VERSION)
+        return warn('TGLDmic version differs',
+            'Loaded kext is ' + kver + ', this package is ' + PKG_VERSION + '. They are compatible, ' +
+            'but updating TGLDmic.kext in OpenCore to ' + PKG_VERSION + ' is recommended.');
+    if (parseInt(o['TGLDmicPhase']) != 4)
+        return warn('TGLDmic is not in microphone mode',
+            'TGLDmic ' + kver + ' is loaded, but boot-arg -tgldmic is not set, so no microphone is exposed. ' +
+            'Add -tgldmic to boot-args and reboot after installing.');
+    return true;
+}
+]]></script>
     <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
     <choices-outline>
         <line choice="default">

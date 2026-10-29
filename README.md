@@ -4,12 +4,25 @@
 
 <h1 align="center">TGLDmic</h1>
 <p align="center"><b>Tiger Lake microphone driver for macOS</b><br>
-Internal 4-mic array of the HP EliteBook 840 G8 via the Intel Smart Sound DSP (SOF)</p>
+Internal digital microphones (DMIC) of Intel Tiger Lake laptops via the Intel Smart Sound DSP (SOF)</p>
 
-> Unofficial community project. Not affiliated with or endorsed by Intel, HP or Apple.
+> Unofficial community project. Not affiliated with or endorsed by Intel, Apple or any laptop vendor.
 
-Internal microphone driver for the HP EliteBook 840 G8 hackintosh (Tiger Lake, 4-mic PDM array
-behind the Smart Sound DSP). Runs next to AppleHDA/AppleALC, which keep speakers and headset.
+Internal microphone driver for Tiger Lake (TGL-LP) hackintosh laptops whose PDM mic array sits
+behind the Smart Sound DSP instead of the HDA codec. Runs next to AppleHDA/AppleALC, which keep
+speakers and headset.
+
+## Compatibility
+| | |
+|---|---|
+| Matches | Intel Smart Sound DSP `8086:A0C8` (Tiger Lake **LP**: 11th-gen Core UP3/UP4 laptops) |
+| Not supported | Tiger Lake-H `8086:43C8` (needs `sof-tgl-h.ri`), Ice Lake and older, Alder Lake and newer |
+| Reference machine | HP EliteBook 840 G8 (4 PDM mics, ALC285): **tested** on Ventura |
+| Other Tiger Lake laptops | Expected to work when the NHLT describes a 2- or 4-mic PDM array on DMIC0; **untested**, reports welcome |
+
+The pipeline setup (`kext/TGLDmic/IpcReplay.hpp`) is replayed from a Linux SOF capture of the
+reference machine. If your mic stays silent, run `linux/capture-sof-dmic.sh` on your laptop and
+open an issue with the tarball, so a per-machine profile can be added.
 
 | Path | What |
 |---|---|

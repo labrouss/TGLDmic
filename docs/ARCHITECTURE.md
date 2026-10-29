@@ -1,7 +1,7 @@
 # TGLDmic — Tiger Lake DMIC driver for macOS
 
-Target: HP EliteBook 840 G8 (cAVS 2.5 / TGL-LP, PCI 8086:A0C8, SSID 103c:8ab9),
-4-element linear PDM mic array on the DSP DMIC0/1 lines (NHLT link type PDM).
+Target: Intel Tiger Lake laptops (cAVS 2.5 / TGL-LP, PCI 8086:A0C8) with a PDM mic array on the DSP.
+Reference machine: HP EliteBook 840 G8 (SSID 103c:8ab9), 4-element linear PDM mic array on the DSP DMIC0/1 lines (NHLT link type PDM).
 
 ## Constraint
 AppleHDA (+AppleALC, layout 11) already drives the ALC285 codec for speakers

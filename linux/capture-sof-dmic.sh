@@ -1,5 +1,5 @@
 #!/bin/bash
-# TGLDmic phase 0 - capture how Linux SOF brings up the DMIC on the EliteBook 840 G8
+# TGLDmic phase 0 - capture how Linux SOF brings up the DMIC on a Tiger Lake laptop
 # Run from an Ubuntu live USB:   sudo bash capture-sof-dmic.sh
 # Safe by default: no DSP register access, no mmiotrace. Output is written next to the script (run it from a USB stick).
 # Default: no register reads (BARDUMP=1 enables, can freeze), no mmiotrace (MMIOTRACE=1, can freeze), PCM 6 only (ALLDMIC=1 adds PCM 7).
@@ -147,7 +147,7 @@ done
 if [ $MMIO = 1 ]; then
   echo nop > $TR/current_tracer; sleep 1; kill $TRPID 2>/dev/null
 fi
-if [ "${DEBUGFS:-0}" = 1 ] && [ -d /sys/kernel/debug/sof ]; then  # off: reading DSP windows after capture froze the 840 G8
+if [ "${DEBUGFS:-0}" = 1 ] && [ -d /sys/kernel/debug/sof ]; then  # off: reading DSP windows after capture froze the reference machine
   for f in /sys/kernel/debug/sof/*; do
     n=$(basename "$f")
     case "$n" in trace|*flood*|*inject*|probe*) continue;; esac

@@ -1,4 +1,4 @@
-// TGLDmic.driver - Core Audio AudioServerPlugIn exposing the HP EliteBook 840 G8 internal DMIC.
+// TGLDmic.driver - Core Audio AudioServerPlugIn exposing the Tiger Lake DSP internal DMIC.
 //
 // Data path: TGLDmic.kext runs the SOF DSP pipeline; the DSP DMAs S32_LE 4ch 48 kHz frames into a
 // 64 KB ring (4096 frames). This plug-in maps that ring read-only through TGLDmicUserClient, polls
