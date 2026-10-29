@@ -80,6 +80,8 @@ private:
 
     uint32_t sdOffset(uint32_t globalIndex) { return 0x80 + 0x20 * globalIndex; }
     bool streamStopReset(uint32_t sd);
+    void ensureSnoop(const char *who);
+    bool snoopLogged {false};
     bool prepareLoaderStream(uint32_t globalIndex, uint32_t tag, size_t fwBytes);
     void releaseLoaderStream(uint32_t globalIndex);
     void gating(bool enable);

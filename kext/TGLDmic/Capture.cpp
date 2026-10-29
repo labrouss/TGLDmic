@@ -99,6 +99,7 @@ bool TGLDmic::prepareCaptureStream(uint32_t idx, uint32_t tag) {
         uint64_t a = ringBuf.iova + i * PERIOD_BYTES;
         bdl[i] = { (uint32_t)a, (uint32_t)(a >> 32), PERIOD_BYTES, 0 };
     }
+    ensureSnoop("cap");
     ptBuf.sync(); capBdl.sync();
 
     w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) | (1u << idx));   // decouple -> DSP
@@ -325,6 +326,7 @@ bool TGLDmic::captureTest() {
         while (blocks < CAPTURE_SECONDS && waited < limitMs) {
             IOSleep(10); waited += 10;
             uint32_t pos = r32(dpib) % RING_BYTES;
+            ringBuf.invalidate();
             uint32_t avail = (pos + RING_BYTES - readPos) % RING_BYTES;
             avail -= avail % FRAME_BYTES;
             total += avail;

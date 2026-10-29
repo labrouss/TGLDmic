@@ -15,6 +15,7 @@ extern "C" const unsigned int kSofTglRiSize;
 namespace {
 constexpr uint32_t PCI_PGCTL = 0x44, PCI_PGCTL_ADSPPGD = 1u << 2;
 constexpr uint32_t PCI_CGCTL = 0x48, PCI_CGCTL_ADSPDCGE = 1u << 1;
+constexpr uint32_t PCI_DEVC  = 0x78; constexpr uint16_t PCI_DEVC_NSNPEN = 1u << 11;
 constexpr uint32_t HDA_EM2 = 0x1030, EM2_L1SEN = 1u << 13;
 constexpr uint32_t SD_STS = 0x03, SD_STS_MASK = 0x1C;                // BCIS | FIFOE | DESE
 constexpr uint32_t SD_CTL_INT_MASK = 0x1C;                           // IOCE | FEIE | DEIE
@@ -84,9 +85,31 @@ void TGLDmic::gating(bool enable) {
     }
 }
 
+// PCI DEVC (0x78) bit 11 NSNPEN: when set, the controller may DMA without snooping CPU caches
+// and reads stale memory. Linux snd-hda-intel / SOF clear it; AppleHDA appears to, HDAUniversal may not.
+void TGLDmic::ensureSnoop(const char *who) {
+    uint16_t devc = pci->configRead16(PCI_DEVC);
+    int allow = 1;
+    PE_parse_boot_argn("tgldmicsnoop", &allow, sizeof(allow));
+    if ((devc & PCI_DEVC_NSNPEN) && allow) {
+        pci->configWrite16(PCI_DEVC, devc & ~PCI_DEVC_NSNPEN);
+        LOG("%s: DEVC 0x%04x: no-snoop DMA was enabled - disabled (DEVC now 0x%04x)", who, devc,
+            pci->configRead16(PCI_DEVC));
+    } else if (!snoopLogged) {
+        LOG("%s: DEVC 0x%04x (no-snoop %s)", who, devc, (devc & PCI_DEVC_NSNPEN) ? "ON, left by tgldmicsnoop=0" : "off");
+    }
+    snoopLogged = true;
+}
+
 bool TGLDmic::streamStopReset(uint32_t sd) {
     w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
-    if (!pollHda(sd, HDA::SD_CTL_RUN, 0, 300)) return false;
+    if (!pollHda(sd, HDA::SD_CTL_RUN, 0, 300)) {
+        // a stalled DMA engine can take a while to drain after RUN is cleared
+        if (!pollHda(sd, HDA::SD_CTL_RUN, 0, 20000)) {
+            LOG("stream @0x%x: RUN did not clear (CTL 0x%08x)", sd, r32(sd));
+            return false;
+        }
+    }
     w8(sd + SD_STS, SD_STS_MASK);                                      // W1C
     w32(sd, r32(sd) | HDA::SD_CTL_SRST);
     if (!pollHda(sd, HDA::SD_CTL_SRST, HDA::SD_CTL_SRST, 300)) return false;
@@ -224,6 +247,7 @@ bool TGLDmic::bootDsp() {
         pci->setBusMasterEnable(true); forcedBme = true;
         LOG("boot: bus master was OFF (CMD 0x%04x) - enabled for the boot", cmd);
     }
+    ensureSnoop("boot");
     uint8_t d0i3 = r8(VS_D0I3C);
     if (d0i3 & D0I3C_I3) {
         w8(VS_D0I3C, d0i3 & ~D0I3C_I3);

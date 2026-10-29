@@ -20,5 +20,5 @@ enum {
 };
 
 #define kTGLDmicInterfaceVersion 1
-#define kTGLDmicVersionString    "0.4.7"   // kept in sync with Info.plist by tools/set-version.sh
+#define kTGLDmicVersionString    "0.4.8"   // kept in sync with Info.plist by tools/set-version.sh
 // Ring format: S32_LE, 4 interleaved channels, 48 kHz. ch0/ch1 = mic pair A, ch2 == ch3 = mic B.

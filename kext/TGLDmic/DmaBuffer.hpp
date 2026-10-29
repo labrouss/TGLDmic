@@ -14,11 +14,9 @@ struct DmaBuffer {
     uint64_t iova {0};
     size_t size {0};
 
-    // How the controller addresses memory:
-    //   device mapper present (VT-d translates this device)   -> IOVA from that mapper
-    //   no device mapper (e.g. Tahoe + HDAUniversal)          -> real physical address < 4 GB
-    // The system-wide mapper must not be used then: its IOVAs mean nothing to an untranslated device.
-    // Boot-arg tgldmicdma=1 forces the old behaviour (system mapper), tgldmicdma=2 forces physical.
+    // How the controller addresses memory: IOVA from the device's mapper, or from the system
+    // mapper when the device has none (Tahoe + HDAUniversal; a v0.4.7 test proved physical
+    // addresses do not work there: DMA fetched nothing). tgldmicdma=2 forces physical for testing.
     enum Mode { kAuto = 0, kForceMapped = 1, kForcePhysical = 2 };
     bool physical {false};
 
@@ -31,7 +29,7 @@ struct DmaBuffer {
         size = round_page(bytes);
         IOMapper *mapper = IOMapper::copyMapperForDevice(pci);
         int mode = modeArg();
-        physical = (mode == kForcePhysical) || (mode == kAuto && !mapper);
+        physical = (mode == kForcePhysical);
         IOOptionBits opts = kIODirectionInOut | kIOMemoryPhysicallyContiguous | (physical ? kIOMemoryMapperNone : 0);
         mem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(kernel_task, opts, size, 0x00000000FFFFF000ULL);
         if (!mem || mem->prepare() != kIOReturnSuccess) { OSSafeReleaseNULL(mapper); release(); return false; }
@@ -56,7 +54,13 @@ struct DmaBuffer {
         return true;
     }
 
-    void sync() { if (cmd) cmd->synchronize(kIODirectionOut); }   // physical mode: coherent, nothing to do
+    // Push CPU-written data to RAM: the controller may DMA without snooping the CPU caches.
+    void sync() {
+        if (mem) mem->performOperation(kIOMemoryIncoherentIOFlush, 0, size);
+        if (cmd) cmd->synchronize(kIODirectionOut);
+    }
+    // Drop stale cache lines before the CPU reads data the controller wrote.
+    void invalidate() { if (mem) mem->performOperation(kIOMemoryIncoherentIOFlush, 0, size); }
 
     void release() {
         if (cmd) { cmd->clearMemoryDescriptor(true); OSSafeReleaseNULL(cmd); }
