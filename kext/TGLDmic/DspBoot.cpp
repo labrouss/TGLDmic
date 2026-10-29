@@ -242,18 +242,30 @@ bool TGLDmic::bootDsp() {
             r16(sd + HDA::SD_LVI), r16(sd + HDA::SD_FMT), r32(sd + HDA::SD_BDPU), r32(sd + HDA::SD_BDPL));
         // Same bits Linux sets (RUN + IOCE/FEIE/DEIE); INTCTL stays untouched so no MSI reaches AppleHDA.
         w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
-        static const uint32_t probeUs[] = { 100, 1000, 10000, 100000 };
-        uint32_t waited = 0;
-        for (uint32_t t : probeUs) {
-            IODelay(t - waited); waited = t;
-            LOG("boot: +%uus CTL 0x%08x LPIB %u DPIB %u FSR 0x%08x", t, r32(sd), r32(sd + HDA::SD_LPIB),
-                r32(dpib), d32(DSP::ROM_STATUS));
+        // Record every FSR transition (state/wait/module/halted) until FW_ENTERED, HALTED or 3 s.
+        uint32_t lastFsr = d32(DSP::ROM_STATUS), t = 0, changes = 0;
+        LOG("boot: t=0us FSR 0x%08x", lastFsr);
+        while (t < 3000000 && changes < 24) {
+            IODelay(20); t += 20;
+            uint32_t f = d32(DSP::ROM_STATUS);
+            if (f == lastFsr) continue;
+            lastFsr = f; changes++;
+            LOG("boot: t=%uus FSR 0x%08x (mod %u wait %u state 0x%x%s) DPIB %u", t, f, (f >> 28) & 7, (f >> 24) & 0xF,
+                f & FSR_MASK, (f & 0x80000000u) ? " HALTED" : "", r32(dpib));
+            if ((f & FSR_MASK) == FSR_FW_ENTERED || (f & 0x80000000u)) break;
         }
-        bool entered = pollDsp(DSP::ROM_STATUS, FSR_MASK, FSR_FW_ENTERED, 3000000, &v);
+        bool entered = pollDsp(DSP::ROM_STATUS, FSR_MASK, FSR_FW_ENTERED, 1000, &v);
         uint32_t lpib = r32(sd + HDA::SD_LPIB), dp = r32(dpib), ctl = r32(sd);
         w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
         if (!entered) {
             fail("FW_ENTERED", v);
+            // ROM error code (HDA_DSP_SRAM_REG_ROM_ERROR): 40 CSE error, 41 CSE wrong response,
+            // 42 IMR too small, 43 base FW not found, 44 CSE validation failed, 45 IPC fatal ...
+            LOG("boot: ROM error code %u (0x%08x)", d32(DSP::ROM_STATUS + 4), d32(DSP::ROM_STATUS + 4));
+            LOG("boot: SRAM 0x80000: %08x %08x %08x %08x %08x %08x %08x %08x",
+                d32(0x80000), d32(0x80004), d32(0x80008), d32(0x8000C), d32(0x80010), d32(0x80014), d32(0x80018), d32(0x8001C));
+            LOG("boot: HIPCTDR 0x%08x HIPCTDD 0x%08x HIPCIDR 0x%08x HIPCIDA 0x%08x ADSPCS 0x%08x",
+                d32(DSP::HIPCTDR), d32(DSP::HIPCTDD), d32(DSP::HIPCIDR), d32(DSP::HIPCIDA), d32(DSP::ADSPCS));
             LOG("boot: loader CTL 0x%08x LPIB %u DPIB %u of %zu, INTSTS 0x%08x, GCTL 0x%08x", ctl, lpib, dp, fwBytes,
                 r32(HDA::INTSTS), r32(HDA::GCTL));
             break;
