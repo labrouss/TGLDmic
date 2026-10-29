@@ -48,7 +48,7 @@ which is a separate, later code path.
 | 1 ✅ | Read-only probe kext next to AppleHDA | Logs GCAP/PPCAP/ADSPCS, no audio regression |
 | 2 ✅ | DSP boot on macOS | FW_READY received; speakers still work |
 | 3 ✅ | IPC replay + decoupled input DMA | PCM samples with non-zero RMS in a debug buffer |
-| 4 🚧 | AudioServerPlugIn (user-space Core Audio driver) fed by the kext | Mic visible in Sound settings, records in QuickTime |
+| 4 ✅ | AudioServerPlugIn (user-space Core Audio driver) fed by the kext | Mic visible in Sound settings, records in QuickTime |
 | 5 | Robustness | Survives AppleHDA reset, sleep/wake, gain control |
 
 ## Exposing the mic to macOS: AudioServerPlugIn, not IOAudioFamily
@@ -95,3 +95,12 @@ TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_ST
 * v0.3.2 (music next to the laptop): 8 s sustained at 806 B/ms, envelope swings -63..-49 dBFS,
   loudest second -49 dBFS RMS / -30 dBFS peak, speech band -50 dBFS, mic-to-mic correlation 0.82.
   **Internal DMIC confirmed working under macOS.** Reference: `captures/macos-v0.3.2/`.
+
+## Status (2026-10-29, v0.4.2)
+* **Phase 4 confirmed on Ventura:** "Internal Microphone (TGLDmic)" is published by Core Audio, the
+  Sound settings level meter follows speech, Voice Memos records cleanly (no clicks/drop-outs).
+* Bug found via HAL property trace: the HAL queries output-scope `saft` on input-only devices and
+  drops the device if it fails -> answer scoped device properties in every scope.
+* Open: the DSP was not running when the first client connected (state 0x4); the user client re-booted
+  it on demand (~120 ms). To check in phase 5: is the boot-time boot skipped, or does the HDA driver's
+  idle power management (D3) power the DSP down?

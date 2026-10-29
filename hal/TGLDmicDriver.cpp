@@ -108,7 +108,7 @@ static bool fitHostForSample(Float64 sample, UInt64 *outHost) {
 
 // ---- property-call tracing (first kTraceMax calls) ----
 static std::atomic<int> gTraceCount { 0 };
-static const int kTraceMax = 400;
+static const int kTraceMax = 0;    // set to e.g. 400 to log the HAL's first property calls (v0.4.1 debugging)
 static void fourcc(UInt32 v, char out[5]) {
     for (int i = 0; i < 4; i++) { char ch = (char)((v >> (24 - 8 * i)) & 0xFF); out[i] = (ch >= 32 && ch < 127) ? ch : '?'; }
     out[4] = 0;

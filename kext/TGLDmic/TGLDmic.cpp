@@ -80,7 +80,7 @@ bool TGLDmic::start(IOService *provider) {
     if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.4.2 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.4.3 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
     if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready%s", captureRequested ? " + capture" : "",
@@ -201,6 +201,20 @@ void TGLDmic::publish() {
     setProperty("SpareOutputStream", (unsigned long long)(spareOut < 0 ? 0xFF : spareOut), 32);
 }
 
+// After the observation window: every 10 s, log changes of PCI power state, GCTL and ADSPCS,
+// so we can see when (and how) the DSP gets powered down while idle. Never touches BARs in D3.
+void TGLDmic::watchdog() {
+    wdTicks++;
+    uint8_t pmCap = 0;
+    uint16_t pm = pci->findPCICapability(kIOPCIPowerManagementCapability, &pmCap) ? (pci->configRead16(pmCap + 4) & 3) : 0;
+    uint32_t gctl = 0, cs = 0;
+    if (pm == 0 && memoryDecoded()) { gctl = r32(HDA::GCTL); if (dsp) cs = d32(DSP::ADSPCS); }
+    if (pm != wdPm || gctl != wdGctl || cs != wdAdspcs)
+        LOG("wd: t=%us D%u GCTL 0x%08x ADSPCS 0x%08x streaming %d clients %u", 180 + wdTicks * 10, pm, gctl, cs,
+            streaming, startCount);
+    wdPm = pm; wdGctl = gctl; wdAdspcs = cs;
+}
+
 void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     auto self = OSDynamicCast(TGLDmic, owner);
     if (!self) return;
@@ -214,7 +228,11 @@ void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     self->samples++;
     self->publish();
     if (self->samples < kPollCount) sender->setTimeoutMS(kPollMs);
-    else { self->logLine("observation finished: used stream mask 0x%08x", self->everRunning); self->publish(); }
+    else {
+        if (self->samples == kPollCount) self->logLine("observation finished: used stream mask 0x%08x", self->everRunning);
+        if (self->serviceMode) { self->watchdog(); self->publish(); sender->setTimeoutMS(10000); }
+        else self->publish();
+    }
 }
 
 IOReturn TGLDmic::gatedShutdown(OSObject *o, void *, void *, void *, void *) {

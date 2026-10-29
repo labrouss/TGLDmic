@@ -1,4 +1,4 @@
-# TGLDmic 0.4.2: internal microphone for the HP EliteBook 840 G8 (macOS)
+# TGLDmic 0.4.3: internal microphone for the HP EliteBook 840 G8 (macOS)
 
 Contents of this package:
 

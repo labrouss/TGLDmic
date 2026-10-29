@@ -128,11 +128,23 @@ void TGLDmic::releaseCaptureBuffers() {
     ringBuf.release(); ptBuf.release(); capBdl.release();
 }
 
-// DSP still running SOF? (an HDA driver reset or D3 would have powered the core off)
-bool TGLDmic::dspAlive() {
-    if (!dsp || bootState != 1 || !memoryDecoded() || !inD0()) return false;
-    uint32_t cs = d32(DSP::ADSPCS);
-    return cs != 0xFFFFFFFF && (cs & (1u << 24)) && !(cs & (1u << 8)) && !(cs & 1u);   // CPA0, not stalled, not reset
+// DSP still running SOF? (an HDA driver reset or D3 would have powered the core off). Logs the reason.
+bool TGLDmic::dspAlive(bool logReason) {
+    const char *why = nullptr;
+    uint32_t cs = 0;
+    if (!dsp) why = "BAR4 not mapped";
+    else if (bootState != 1) why = "never booted";
+    else if (!memoryDecoded()) why = "PCI memory decoding off";
+    else if (!inD0()) why = "controller not in D0";
+    else {
+        cs = d32(DSP::ADSPCS);
+        if (cs == 0xFFFFFFFF) why = "ADSPCS reads all-ones";
+        else if (!(cs & (1u << 24))) why = "core0 not powered (CPA=0)";
+        else if (cs & (1u << 8)) why = "core0 stalled";
+        else if (cs & 1u) why = "core0 in reset";
+    }
+    if (why && logReason) LOG("svc: DSP not alive: %s (ADSPCS 0x%08x, GCTL 0x%08x)", why, cs, hda ? r32(HDA::GCTL) : 0);
+    return !why;
 }
 
 // Host stream prepare + IPC setup + host DMA run + IPC trigger start (hda_dsp_pcm_hw_params/trigger order)
@@ -179,7 +191,7 @@ IOReturn TGLDmic::gatedStart(OSObject *o, void *, void *, void *, void *) {
     if (!self) return kIOReturnBadArgument;
     if (self->startCount++ > 0 && self->streaming) return kIOReturnSuccess;
     if (!self->ready) { self->startCount--; return kIOReturnNotReady; }
-    if (!self->dspAlive()) {
+    if (!self->dspAlive(true)) {
         self->LOG("svc: DSP not running - booting");
         self->keepRunning = true;
         if (!self->bootDsp()) { self->startCount--; self->publish(); return kIOReturnNoDevice; }

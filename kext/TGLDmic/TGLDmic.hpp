@@ -108,7 +108,9 @@ private:
     void releaseCaptureBuffers();
     bool pipelineStart();
     void pipelineStop();
-    bool dspAlive();
+    bool dspAlive(bool logReason = false);
+    void watchdog();
+    uint32_t wdPm {0xFFFF}, wdGctl {0}, wdAdspcs {0}, wdTicks {0};
     bool captureTest();
 
     // ---- Phase 4 service state ----
