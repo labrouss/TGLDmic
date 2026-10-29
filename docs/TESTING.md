@@ -13,6 +13,7 @@ For development and bug reports. Normal users only need `-tgldmic` (see [INSTALL
 | `tgldmicdelay=<s>` | 2/3 | Delay before the test, 10–170 s (default 20) |
 | `-tgldmic` | 4 – service | Normal use: microphone exposed to Core Audio |
 | `-tgldmicoff` | – | Disables the kext completely |
+| `tgldmicdma=1` / `=2` | – | DMA addressing: force IOMMU-mapped / force physical (default: mapped if the device has a VT-d mapper, else physical) |
 
 `TGLDmicPhase` in ioreg shows the active mode. The `Log` property holds the kext's last 128 log lines.
 

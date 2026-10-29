@@ -210,7 +210,8 @@ bool TGLDmic::bootDsp() {
     memcpy(clBuf.virt, kSofTglRi + skip, fwBytes);
     {
         IOMapper *m = IOMapper::copyMapperForDevice(pci);
-        LOG("boot: DMA mapper %s, fw phys 0x%llx -> iova 0x%llx", m ? m->getMetaClass()->getClassName() : "none",
+        LOG("boot: DMA device mapper %s, mode %s, fw phys 0x%llx -> bus 0x%llx",
+            m ? m->getMetaClass()->getClassName() : "none", clBuf.physical ? "physical" : "mapped",
             (unsigned long long)clBuf.mem->getPhysicalSegment(0, nullptr, kIOMemoryMapperNone),
             (unsigned long long)clBuf.iova);
         OSSafeReleaseNULL(m);
