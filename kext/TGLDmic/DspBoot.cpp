@@ -242,18 +242,23 @@ bool TGLDmic::bootDsp() {
             r16(sd + HDA::SD_LVI), r16(sd + HDA::SD_FMT), r32(sd + HDA::SD_BDPU), r32(sd + HDA::SD_BDPL));
         // Same bits Linux sets (RUN + IOCE/FEIE/DEIE); INTCTL stays untouched so no MSI reaches AppleHDA.
         w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
-        // Record every FSR transition (state/wait/module/halted) until FW_ENTERED, HALTED or 3 s.
-        uint32_t lastFsr = d32(DSP::ROM_STATUS), t = 0, changes = 0;
+        // Trace FSR state/module/halted changes until FW_ENTERED, HALTED or 3 s. The wait field toggles
+        // (wait 5 = DMA buffer full) every ~32 KB during the load: count those, don't log them.
+        uint32_t lastFsr = d32(DSP::ROM_STATUS), t = 0, waitToggles = 0;
         LOG("boot: t=0us FSR 0x%08x", lastFsr);
-        while (t < 3000000 && changes < 24) {
+        while (t < 3000000) {
             IODelay(20); t += 20;
             uint32_t f = d32(DSP::ROM_STATUS);
             if (f == lastFsr) continue;
-            lastFsr = f; changes++;
-            LOG("boot: t=%uus FSR 0x%08x (mod %u wait %u state 0x%x%s) DPIB %u", t, f, (f >> 28) & 7, (f >> 24) & 0xF,
-                f & FSR_MASK, (f & 0x80000000u) ? " HALTED" : "", r32(dpib));
+            bool onlyWait = ((f ^ lastFsr) & ~0x0F000000u) == 0;
+            lastFsr = f;
+            if (onlyWait) { waitToggles++; continue; }
+            if (logRing && logRing->getCount() < 120)
+                LOG("boot: t=%uus FSR 0x%08x (mod %u wait %u state 0x%x%s) DPIB %u, %u wait toggles", t, f, (f >> 28) & 7,
+                    (f >> 24) & 0xF, f & FSR_MASK, (f & 0x80000000u) ? " HALTED" : "", r32(dpib), waitToggles);
             if ((f & FSR_MASK) == FSR_FW_ENTERED || (f & 0x80000000u)) break;
         }
+        LOG("boot: trace end t=%uus FSR 0x%08x DPIB %u, %u wait toggles", t, lastFsr, r32(dpib), waitToggles);
         bool entered = pollDsp(DSP::ROM_STATUS, FSR_MASK, FSR_FW_ENTERED, 1000, &v);
         uint32_t lpib = r32(sd + HDA::SD_LPIB), dp = r32(dpib), ctl = r32(sd);
         w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
