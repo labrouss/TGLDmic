@@ -75,7 +75,7 @@ bool TGLDmic::start(IOService *provider) {
     bootRequested = bootArg("-tgldmicboot");
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.2.4 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.2.5 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
 

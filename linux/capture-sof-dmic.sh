@@ -45,8 +45,10 @@ bardump(){ [ "${BARDUMP:-0}" = 1 ] || return 0; [ "$(cat /sys/bus/pci/devices/$P
 
 # ---------- 1. static material ----------
 log "Copying firmware, topology, NHLT"
-for f in /lib/firmware/intel/sof/sof-tgl.ri* /lib/firmware/intel/sof/community/sof-tgl.ri* \
-         /lib/firmware/intel/sof-tplg/sof-hda-generic-4ch.tplg* /lib/firmware/intel/sof-tplg/sof-hda-generic.tplg*; do
+# keep signed and community builds apart (same file name!) - only the Intel-signed one passes the CSE on production laptops
+for f in /lib/firmware/intel/sof/sof-tgl.ri*; do [ -f "$f" ] && cp -v "$f" "$OUT/fw/intel-signed-$(basename "$f")" >> "$LOG"; done
+for f in /lib/firmware/intel/sof/community/sof-tgl.ri*; do [ -f "$f" ] && cp -v "$f" "$OUT/fw/community-$(basename "$f")" >> "$LOG"; done
+for f in /lib/firmware/intel/sof-tplg/sof-hda-generic-4ch.tplg* /lib/firmware/intel/sof-tplg/sof-hda-generic.tplg*; do
   [ -f "$f" ] && cp -v "$f" "$OUT/fw/" >> "$LOG"
 done
 for f in "$OUT"/fw/*.zst; do [ -f "$f" ] && zstd -dq "$f"; done
