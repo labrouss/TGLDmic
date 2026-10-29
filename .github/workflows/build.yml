@@ -24,7 +24,7 @@ jobs:
           VER=$(plutil -extract CFBundleShortVersionString raw kext/TGLDmic/Info.plist)
           mkdir -p dist/TGLDmic-$VER
           cp -R kext/build/TGLDmic.kext hal/build/TGLDmic.driver hal/build/tgldmic-probe dist/TGLDmic-$VER/
-          cp hal/install-hal.sh hal/uninstall-hal.sh tools/snapshot-to-wav.py dist/TGLDmic-$VER/
+          cp hal/install-hal.sh hal/uninstall-hal.sh tools/snapshot-to-wav.py tools/list-audio-devices.py dist/TGLDmic-$VER/
           cp docs/INSTALL.md dist/TGLDmic-$VER/README.md
           cd dist && ditto -c -k --keepParent TGLDmic-$VER TGLDmic-$VER.zip
       - uses: actions/upload-artifact@v4

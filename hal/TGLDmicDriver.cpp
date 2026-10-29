@@ -106,6 +106,20 @@ static bool fitHostForSample(Float64 sample, UInt64 *outHost) {
     return true;
 }
 
+// ---- property-call tracing (first kTraceMax calls) ----
+static std::atomic<int> gTraceCount { 0 };
+static const int kTraceMax = 400;
+static void fourcc(UInt32 v, char out[5]) {
+    for (int i = 0; i < 4; i++) { char ch = (char)((v >> (24 - 8 * i)) & 0xFF); out[i] = (ch >= 32 && ch < 127) ? ch : '?'; }
+    out[4] = 0;
+}
+static void trace(const char *fn, AudioObjectID obj, const AudioObjectPropertyAddress *a, UInt32 size, long result) {
+    if (gTraceCount.fetch_add(1) >= kTraceMax || !a) return;
+    char sel[5], scope[5]; fourcc(a->mSelector, sel); fourcc(a->mScope, scope);
+    LOG("TGLDmic: %{public}s obj %u '%{public}s' scope '%{public}s' el %u -> size %u result %ld", fn, obj, sel, scope,
+        a->mElement, size, result);
+}
+
 static Float32 dbToGain(Float32 db) { return powf(10.0f, db / 20.0f); }
 static Float32 dbToScalar(Float32 db) { return (db - kVolumeMinDB) / (kVolumeMaxDB - kVolumeMinDB); }
 static Float32 scalarToDB(Float32 s) {
@@ -275,7 +289,7 @@ static AudioStreamBasicDescription streamFormat() {
     return f;
 }
 
-static Boolean HasProperty(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t, const AudioObjectPropertyAddress *a) {
+static Boolean HasPropertyImpl(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t, const AudioObjectPropertyAddress *a) {
     if (inDriver != gDriverRef || !a) return false;
     switch (obj) {
     case kObjectID_PlugIn:
@@ -327,10 +341,10 @@ static Boolean HasProperty(AudioServerPlugInDriverRef inDriver, AudioObjectID ob
     return false;
 }
 
-static OSStatus IsPropertySettable(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
+static OSStatus IsPropertySettableImpl(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
                                    const AudioObjectPropertyAddress *a, Boolean *out) {
     if (inDriver != gDriverRef || !a || !out) return kAudioHardwareIllegalOperationError;
-    if (!HasProperty(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
+    if (!HasPropertyImpl(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
     *out = false;
     if (obj == kObjectID_Volume_Input_Master &&
         (a->mSelector == kAudioLevelControlPropertyScalarValue || a->mSelector == kAudioLevelControlPropertyDecibelValue))
@@ -342,10 +356,10 @@ static OSStatus IsPropertySettable(AudioServerPlugInDriverRef inDriver, AudioObj
     return kAudioHardwareNoError;
 }
 
-static OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
+static OSStatus GetPropertyDataSizeImpl(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
                                     const AudioObjectPropertyAddress *a, UInt32, const void *, UInt32 *out) {
     if (inDriver != gDriverRef || !a || !out) return kAudioHardwareIllegalOperationError;
-    if (!HasProperty(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
+    if (!HasPropertyImpl(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
     switch (a->mSelector) {
     case kAudioObjectPropertyBaseClass: case kAudioObjectPropertyClass: case kAudioControlPropertyScope:
         *out = sizeof(AudioClassID); return 0;
@@ -386,11 +400,11 @@ static OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, AudioOb
 
 #define NEED(sz) do { if (inDataSize < (sz)) return kAudioHardwareBadPropertySizeError; *outDataSize = (sz); } while (0)
 
-static OSStatus GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
+static OSStatus GetPropertyDataImpl(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
                                 const AudioObjectPropertyAddress *a, UInt32 qSize, const void *qData,
                                 UInt32 inDataSize, UInt32 *outDataSize, void *outData) {
     if (inDriver != gDriverRef || !a || !outDataSize || !outData) return kAudioHardwareIllegalOperationError;
-    if (!HasProperty(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
+    if (!HasPropertyImpl(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
     auto u32 = static_cast<UInt32 *>(outData);
     auto ids = static_cast<AudioObjectID *>(outData);
     auto str = static_cast<CFStringRef *>(outData);
@@ -526,10 +540,35 @@ static OSStatus GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObject
     return kAudioHardwareUnknownPropertyError;
 }
 
+
+// ---- traced entry points ----
+static Boolean HasProperty(AudioServerPlugInDriverRef d, AudioObjectID obj, pid_t pid, const AudioObjectPropertyAddress *a) {
+    Boolean r = HasPropertyImpl(d, obj, pid, a);
+    trace("Has", obj, a, 0, r);
+    return r;
+}
+static OSStatus IsPropertySettable(AudioServerPlugInDriverRef d, AudioObjectID obj, pid_t pid, const AudioObjectPropertyAddress *a, Boolean *out) {
+    OSStatus r = IsPropertySettableImpl(d, obj, pid, a, out);
+    trace("Settable", obj, a, 0, r);
+    return r;
+}
+static OSStatus GetPropertyDataSize(AudioServerPlugInDriverRef d, AudioObjectID obj, pid_t pid, const AudioObjectPropertyAddress *a,
+                                    UInt32 qs, const void *qd, UInt32 *out) {
+    OSStatus r = GetPropertyDataSizeImpl(d, obj, pid, a, qs, qd, out);
+    trace("Size", obj, a, out ? *out : 0, r);
+    return r;
+}
+static OSStatus GetPropertyData(AudioServerPlugInDriverRef d, AudioObjectID obj, pid_t pid, const AudioObjectPropertyAddress *a,
+                                UInt32 qs, const void *qd, UInt32 inSize, UInt32 *outSize, void *out) {
+    OSStatus r = GetPropertyDataImpl(d, obj, pid, a, qs, qd, inSize, outSize, out);
+    trace("Get", obj, a, outSize ? *outSize : 0, r);
+    return r;
+}
+
 static OSStatus SetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID obj, pid_t pid,
                                 const AudioObjectPropertyAddress *a, UInt32, const void *, UInt32 inDataSize, const void *inData) {
     if (inDriver != gDriverRef || !a || !inData) return kAudioHardwareIllegalOperationError;
-    if (!HasProperty(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
+    if (!HasPropertyImpl(inDriver, obj, pid, a)) return kAudioHardwareUnknownPropertyError;
     if (obj == kObjectID_Volume_Input_Master &&
         (a->mSelector == kAudioLevelControlPropertyScalarValue || a->mSelector == kAudioLevelControlPropertyDecibelValue)) {
         if (inDataSize != sizeof(Float32)) return kAudioHardwareBadPropertySizeError;

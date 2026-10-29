@@ -1,4 +1,4 @@
-# TGLDmic 0.4.0: internal microphone for the HP EliteBook 840 G8 (macOS)
+# TGLDmic 0.4.1: internal microphone for the HP EliteBook 840 G8 (macOS)
 
 Contents of this package:
 
@@ -34,6 +34,8 @@ the input level meter should move. QuickTime → File → New Audio Recording ca
 * Left = mic 0, right = mic 1 (the closely spaced pair).
 
 ## Logs if something does not work
+    python3 list-audio-devices.py      # is "Internal Microphone (TGLDmic)" published by Core Audio?
+    log show --last boot --predicate 'eventMessage CONTAINS "TGLDmic: "' --info   # plug-in property trace + IO
     log show --last 10m --predicate 'eventMessage CONTAINS "TGLDmic"' --info
     ioreg -l -w0 -c TGLDmic          # "Log" property: the kext's last 128 lines
 
