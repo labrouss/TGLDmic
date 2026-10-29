@@ -10,6 +10,8 @@ behind the Smart Sound DSP). Runs next to AppleHDA/AppleALC, which keep speakers
 | `linux/extract-ipc.py` | Turns the capture into `kext/TGLDmic/IpcReplay.hpp` |
 | `captures/` | Reference captures (firmware boot, pipeline setup, test WAV) |
 | `kext/` | The kext (`make SDK=...`, or GitHub Actions) |
+| `hal/` | Core Audio HAL plug-in `TGLDmic.driver`, `tgldmic-probe`, install scripts |
+| `docs/INSTALL.md` | End-user install and test steps (shipped in the build artifact) |
 
 ## Phase 1: read-only observer (default)
 Add `TGLDmic.kext` to OpenCore `Kernel > Add` **after AppleALC**. It writes nothing to hardware.
@@ -37,3 +39,9 @@ then tears everything down and powers the DSP off.
 
 Talk near the laptop when it runs: by default 20 s after the controller is ready, or set
 `tgldmicdelay=<seconds>` (10-170), e.g. `tgldmicdelay=90` to record after you have logged in.
+
+## Phase 4: real input device (boot arg `-tgldmic`)
+The kext boots the DSP 10 s after the controller is up and keeps it running. `TGLDmicUserClient`
+exposes start/stop, the DMA position and the 64 KB ring (mapped read-only). The HAL plug-in
+`TGLDmic.driver` turns that into "Internal Microphone (TGLDmic)": stereo Float32 48 kHz, with zero
+time stamps from the DMA position and a 0–36 dB input gain. See `docs/INSTALL.md`.

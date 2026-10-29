@@ -48,7 +48,7 @@ which is a separate, later code path.
 | 1 ✅ | Read-only probe kext next to AppleHDA | Logs GCAP/PPCAP/ADSPCS, no audio regression |
 | 2 ✅ | DSP boot on macOS | FW_READY received; speakers still work |
 | 3 ✅ | IPC replay + decoupled input DMA | PCM samples with non-zero RMS in a debug buffer |
-| 4 | AudioServerPlugIn (user-space Core Audio driver) fed by the kext | Mic visible in Sound settings, records in QuickTime |
+| 4 🚧 | AudioServerPlugIn (user-space Core Audio driver) fed by the kext | Mic visible in Sound settings, records in QuickTime |
 | 5 | Robustness | Survives AppleHDA reset, sleep/wake, gain control |
 
 ## Exposing the mic to macOS: AudioServerPlugIn, not IOAudioFamily
@@ -92,3 +92,6 @@ TPLG_PIPE_COMPLETE, STREAM_PCM_PARAMS (stream tag, buffer pages), STREAM_TRIG_ST
 * Phase 3: all 20 replayed IPC3 messages accepted; in6/tag 7 decoupled capture runs at the expected
   768 B/ms; samples match the Linux noise floor (-60 dBFS, ch2 == ch3 as on Linux).
   Reference: `captures/macos-v0.3.0/`.
+* v0.3.2 (music next to the laptop): 8 s sustained at 806 B/ms, envelope swings -63..-49 dBFS,
+  loudest second -49 dBFS RMS / -30 dBFS peak, speech band -50 dBFS, mic-to-mic correlation 0.82.
+  **Internal DMIC confirmed working under macOS.** Reference: `captures/macos-v0.3.2/`.

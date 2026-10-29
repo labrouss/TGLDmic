@@ -1,4 +1,4 @@
-name: build-kext
+name: build
 on:
   push:
   workflow_dispatch:
@@ -9,14 +9,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: MacKernelSDK
         run: git clone --depth 1 https://github.com/acidanthera/MacKernelSDK
-      - name: Build
+      - name: Build kext
         run: make -C kext SDK=$GITHUB_WORKSPACE/MacKernelSDK
-      - name: Check bundle
+      - name: Build HAL plug-in + probe
+        run: make -C hal
+      - name: Check bundles
         run: |
-          file kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic
-          otool -l kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic | grep -A2 LC_ | head -40
-          plutil -lint kext/build/TGLDmic.kext/Contents/Info.plist
+          file kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic hal/build/TGLDmic.driver/Contents/MacOS/TGLDmic hal/build/tgldmic-probe
+          plutil -lint kext/build/TGLDmic.kext/Contents/Info.plist hal/build/TGLDmic.driver/Contents/Info.plist
+          nm -gU hal/build/TGLDmic.driver/Contents/MacOS/TGLDmic | grep TGLDmic_Create
+          nm kext/build/TGLDmic.kext/Contents/MacOS/TGLDmic | grep -c TGLDmicUserClient
+      - name: Package
+        run: |
+          VER=$(plutil -extract CFBundleShortVersionString raw kext/TGLDmic/Info.plist)
+          mkdir -p dist/TGLDmic-$VER
+          cp -R kext/build/TGLDmic.kext hal/build/TGLDmic.driver hal/build/tgldmic-probe dist/TGLDmic-$VER/
+          cp hal/install-hal.sh hal/uninstall-hal.sh tools/snapshot-to-wav.py dist/TGLDmic-$VER/
+          cp docs/INSTALL.md dist/TGLDmic-$VER/README.md
+          cd dist && ditto -c -k --keepParent TGLDmic-$VER TGLDmic-$VER.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: TGLDmic.kext
-          path: kext/build/TGLDmic.kext.zip
+          name: TGLDmic
+          path: dist/*.zip

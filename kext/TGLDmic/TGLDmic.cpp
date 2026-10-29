@@ -73,15 +73,18 @@ bool TGLDmic::start(IOService *provider) {
     pci->retain();
     readDsp = bootArg("-tgldmicdsp");
     captureRequested = bootArg("-tgldmiccap");
-    bootRequested = bootArg("-tgldmicboot") || captureRequested;
+    serviceMode = bootArg("-tgldmic") && !captureRequested;
+    bootRequested = bootArg("-tgldmicboot") || captureRequested || serviceMode;
+    if (serviceMode) { keepRunning = true; bootDelaySec = 10; }
     uint32_t delay = 0;
     if (PE_parse_boot_argn("tgldmicdelay", &delay, sizeof(delay)) && delay >= 10 && delay <= 170) bootDelaySec = delay;
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.3.2 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.4.0 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
-    if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready", captureRequested ? " + capture" : "", bootDelaySec);
+    if (bootRequested) LOG("DSP boot%s scheduled %u s after the controller is ready%s", captureRequested ? " + capture" : "",
+                           bootDelaySec, serviceMode ? " (service mode: DSP stays up, mic exposed to Core Audio)" : "");
 
     bar0 = pci->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
     if (!bar0) { LOG("cannot map BAR0"); return false; }
@@ -103,6 +106,8 @@ bool TGLDmic::start(IOService *provider) {
 
     workLoop = IOWorkLoop::workLoop();      // own loop: boot polling must not block the provider's
     if (workLoop) {
+        gate = IOCommandGate::commandGate(this);
+        if (gate && workLoop->addEventSource(gate) != kIOReturnSuccess) OSSafeReleaseNULL(gate);
         timer = IOTimerEventSource::timerEventSource(this, timerFired);
         if (timer && workLoop->addEventSource(timer) == kIOReturnSuccess)
             timer->setTimeoutMS(kPollMs);
@@ -157,7 +162,12 @@ void TGLDmic::snapshot(bool verbose) {
 }
 
 void TGLDmic::publish() {
-    setProperty("TGLDmicPhase", captureRequested ? 3ULL : bootRequested ? 2ULL : 1ULL, 32);
+    setProperty("TGLDmicPhase", serviceMode ? 4ULL : captureRequested ? 3ULL : bootRequested ? 2ULL : 1ULL, 32);
+    if (serviceMode) {
+        setProperty("ServiceClients", startCount, 32);
+        setProperty("Streaming", streaming);
+        setProperty("StreamGeneration", generation, 64);
+    }
     setProperty("StreamsIn", numIn, 32);
     setProperty("StreamsOut", numOut, 32);
     setProperty("UsedStreamMask", everRunning, 32);
@@ -207,8 +217,20 @@ void TGLDmic::timerFired(OSObject *owner, IOTimerEventSource *sender) {
     else { self->logLine("observation finished: used stream mask 0x%08x", self->everRunning); self->publish(); }
 }
 
+IOReturn TGLDmic::gatedShutdown(OSObject *o, void *, void *, void *, void *) {
+    auto self = OSDynamicCast(TGLDmic, o);
+    if (!self) return kIOReturnBadArgument;
+    if (self->streaming || self->setupDone) self->pipelineStop();
+    self->startCount = 0;
+    if (self->bootState == 1 && self->keepRunning) self->corePowerDown();
+    self->gating(true);
+    self->releaseCaptureBuffers();
+    return kIOReturnSuccess;
+}
+
 void TGLDmic::stop(IOService *provider) {
-    if (bootState == 1 && keepRunning) corePowerDown();
+    if (gate) gate->runAction(gatedShutdown); else gatedShutdown(this, nullptr, nullptr, nullptr, nullptr);
+    if (gate) { if (workLoop) workLoop->removeEventSource(gate); OSSafeReleaseNULL(gate); }
     if (timer) {
         timer->cancelTimeout();
         if (workLoop) workLoop->removeEventSource(timer);

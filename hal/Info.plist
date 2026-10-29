@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>TGLDmic</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.labrouss.TGLDmic.driver</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>TGLDmic</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.4.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.4.0</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15</string>
+	<key>CFPlugInFactories</key>
+	<dict>
+		<key>1CA3BC91-7C60-53EC-B246-437C1D0C151C</key>
+		<string>TGLDmic_Create</string>
+	</dict>
+	<key>CFPlugInTypes</key>
+	<dict>
+		<key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+		<array>
+			<string>1CA3BC91-7C60-53EC-B246-437C1D0C151C</string>
+		</array>
+	</dict>
+	<key>AudioServerPlugIn_IOKitUserClients</key>
+	<array>
+		<string>TGLDmicUserClient</string>
+	</array>
+</dict>
+</plist>

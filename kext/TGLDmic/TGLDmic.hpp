@@ -4,6 +4,7 @@
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOMemoryDescriptor.h>
+#include <IOKit/IOCommandGate.h>
 #include "DmaBuffer.hpp"
 
 struct IpcMsg;   // IpcReplay.hpp
@@ -13,7 +14,15 @@ struct IpcMsg;   // IpcReplay.hpp
 // descriptors AppleHDA uses. Nothing is written to the hardware.
 class TGLDmic : public IOService {
     OSDeclareDefaultStructors(TGLDmic)
+    friend class TGLDmicUserClient;
 public:
+    // ---- Phase 4 service API (called by TGLDmicUserClient; all serialized on the work loop) ----
+    static constexpr uint32_t kRingBytes = 0x10000, kFrameBytes = 16, kRate = 48000, kChannels = 4;
+    IOReturn clientStart();                       // refcounted: first start boots DSP if needed + starts pipeline
+    IOReturn clientStop();
+    IOReturn readPosition(uint64_t *dpibBytes, uint64_t *hostTime, uint64_t *generation);
+    IOMemoryDescriptor *ringMemory();             // retained; nullptr if not allocated
+    uint32_t stateBits();                         // bit0 dsp up, bit1 streaming, bit2 service mode
     IOService *probe(IOService *provider, SInt32 *score) override;
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
@@ -95,7 +104,25 @@ private:
     void ackDspNotification();
     bool replay(const IpcMsg *list, uint32_t count, const char *phase);
     bool prepareCaptureStream(uint32_t idx, uint32_t tag);
+    bool ensureCaptureBuffers();
+    void releaseCaptureBuffers();
+    bool pipelineStart();
+    void pipelineStop();
+    bool dspAlive();
     bool captureTest();
+
+    // ---- Phase 4 service state ----
+    bool serviceMode {false};
+    bool streaming {false};
+    bool setupDone {false}, triggered {false};
+    bool gatingOff {false};
+    uint32_t startCount {0};
+    uint64_t generation {0};
+    IOCommandGate *gate {nullptr};
+    static IOReturn gatedStart(OSObject *o, void *, void *, void *, void *);
+    static IOReturn gatedStop(OSObject *o, void *, void *, void *, void *);
+    static IOReturn gatedEnsureBuffers(OSObject *o, void *, void *, void *, void *);
+    static IOReturn gatedShutdown(OSObject *o, void *, void *, void *, void *);
     void capFail(const char *what, uint32_t value);
     void fail(const char *what, uint32_t value);
 };

@@ -65,6 +65,8 @@ bool TGLDmic::pollDsp(uint32_t off, uint32_t mask, uint32_t want, uint32_t timeo
 
 void TGLDmic::gating(bool enable) {
     if (!enable) {
+        if (gatingOff) return;                    // already off: keep the original saved values
+        gatingOff = true;
         savedCgctl = pci->configRead32(PCI_CGCTL);
         savedPgctl = pci->configRead32(PCI_PGCTL);
         savedEm2 = r32(HDA_EM2);
@@ -73,6 +75,8 @@ void TGLDmic::gating(bool enable) {
         pci->configWrite32(PCI_PGCTL, savedPgctl | PCI_PGCTL_ADSPPGD);
         LOG("boot: clock/power gating off (CGCTL 0x%08x PGCTL 0x%08x EM2 0x%08x)", savedCgctl, savedPgctl, savedEm2);
     } else {
+        if (!gatingOff) return;
+        gatingOff = false;
         pci->configWrite32(PCI_PGCTL, savedPgctl);
         w32(HDA_EM2, savedEm2);
         pci->configWrite32(PCI_CGCTL, savedCgctl);
@@ -298,9 +302,10 @@ bool TGLDmic::bootDsp() {
     } else {
         corePowerDown();
     }
-    gating(true);
-    if (forcedBme && !keepRunning) pci->setBusMasterEnable(false);
-    if (d0i3 & D0I3C_I3) w8(VS_D0I3C, d0i3);
+    bool stayUp = ok && keepRunning;               // service mode: DSP keeps running, gating stays off
+    if (!stayUp) gating(true);
+    if (forcedBme && !stayUp) pci->setBusMasterEnable(false);
+    if ((d0i3 & D0I3C_I3) && !stayUp) w8(VS_D0I3C, d0i3);
     LOG("boot: PPCTL 0x%08x after boot, AppleHDA streams untouched", r32(ppOffset + HDA::PP_PPCTL));
     return ok;
 }

@@ -5,6 +5,7 @@
 #include "Regs.hpp"
 #include "IpcReplay.hpp"
 #include <IOKit/IOLib.h>
+#include <kern/clock.h>
 
 #define LOG(fmt, ...) logLine(fmt, ##__VA_ARGS__)
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -115,29 +116,132 @@ bool TGLDmic::prepareCaptureStream(uint32_t idx, uint32_t tag) {
     return true;
 }
 
+bool TGLDmic::ensureCaptureBuffers() {
+    if (ringBuf.mem && ptBuf.mem && capBdl.mem) return true;
+    releaseCaptureBuffers();
+    if (ringBuf.alloc(pci, RING_BYTES) && ptBuf.alloc(pci, 4096) && capBdl.alloc(pci, 4096)) return true;
+    releaseCaptureBuffers();
+    return false;
+}
+
+void TGLDmic::releaseCaptureBuffers() {
+    ringBuf.release(); ptBuf.release(); capBdl.release();
+}
+
+// DSP still running SOF? (an HDA driver reset or D3 would have powered the core off)
+bool TGLDmic::dspAlive() {
+    if (!dsp || bootState != 1 || !memoryDecoded() || !inD0()) return false;
+    uint32_t cs = d32(DSP::ADSPCS);
+    return cs != 0xFFFFFFFF && (cs & (1u << 24)) && !(cs & (1u << 8)) && !(cs & 1u);   // CPA0, not stalled, not reset
+}
+
+// Host stream prepare + IPC setup + host DMA run + IPC trigger start (hda_dsp_pcm_hw_params/trigger order)
+bool TGLDmic::pipelineStart() {
+    if (streaming) return true;
+    const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx);
+    if (everRunning & (1u << idx)) { capFail("input stream 6 in use by HDA driver", idx); return false; }
+    if (!ensureCaptureBuffers()) { capFail("DMA alloc", 0); return false; }
+    bzero(ringBuf.virt, ringBuf.size);
+    if (!prepareCaptureStream(idx, CAP_TAG)) return false;
+    if (!replay(kIpc_setup, COUNT(kIpc_setup), "setup")) { pipelineStop(); return false; }
+    setupDone = true;
+    w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
+    uint32_t v;
+    bool fifoReady = pollHda(sd, 0x20000000, 0x20000000, 5000, &v);
+    LOG("cap: host DMA running, CTL 0x%08x (FIFORDY %s)", v, fifoReady ? "yes" : "no");
+    if (!replay(kIpc_start, COUNT(kIpc_start), "start")) { pipelineStop(); return false; }
+    triggered = true;
+    streaming = true;
+    generation++;
+    return true;
+}
+
+// IPC trigger stop, host DMA stop, PCM free, free widgets, release the descriptor (hda_dsp_pcm_trigger/hw_free)
+void TGLDmic::pipelineStop() {
+    const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx);
+    if (triggered && dsp) replay(kIpc_stop, 1, "stop");
+    w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
+    pollHda(sd, HDA::SD_CTL_RUN, 0, 5000);
+    if (setupDone && dsp) {
+        if (triggered) replay(kIpc_stop + 1, COUNT(kIpc_stop) - 1, "pcm-free");
+        replay(kIpc_teardown, COUNT(kIpc_teardown), "teardown");
+    }
+    streamStopReset(sd);
+    w32(sd + HDA::SD_BDPL, 0); w32(sd + HDA::SD_BDPU, 0);
+    w32(sd, r32(sd) & ~SD_TAG_MASK);
+    w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) & ~(1u << idx));
+    triggered = setupDone = streaming = false;
+}
+
+// ---------------- Phase 4 service API ----------------
+IOReturn TGLDmic::gatedStart(OSObject *o, void *, void *, void *, void *) {
+    auto self = OSDynamicCast(TGLDmic, o);
+    if (!self) return kIOReturnBadArgument;
+    if (self->startCount++ > 0 && self->streaming) return kIOReturnSuccess;
+    if (!self->ready) { self->startCount--; return kIOReturnNotReady; }
+    if (!self->dspAlive()) {
+        self->LOG("svc: DSP not running - booting");
+        self->keepRunning = true;
+        if (!self->bootDsp()) { self->startCount--; self->publish(); return kIOReturnNoDevice; }
+    }
+    bool ok = self->pipelineStart();
+    if (!ok) self->startCount--;
+    self->LOG("svc: start (clients %u) -> %s", self->startCount, ok ? "streaming" : self->captureResult);
+    self->publish();
+    return ok ? kIOReturnSuccess : kIOReturnIOError;
+}
+
+IOReturn TGLDmic::gatedStop(OSObject *o, void *, void *, void *, void *) {
+    auto self = OSDynamicCast(TGLDmic, o);
+    if (!self) return kIOReturnBadArgument;
+    if (self->startCount == 0) return kIOReturnSuccess;
+    if (--self->startCount == 0 && self->streaming) {
+        self->pipelineStop();
+        self->LOG("svc: stopped (no clients)");
+        self->publish();
+    }
+    return kIOReturnSuccess;
+}
+
+IOReturn TGLDmic::gatedEnsureBuffers(OSObject *o, void *, void *, void *, void *) {
+    auto self = OSDynamicCast(TGLDmic, o);
+    return (self && self->ensureCaptureBuffers()) ? kIOReturnSuccess : kIOReturnNoMemory;
+}
+
+IOReturn TGLDmic::clientStart() { return gate ? gate->runAction(gatedStart) : kIOReturnNotReady; }
+IOReturn TGLDmic::clientStop()  { return gate ? gate->runAction(gatedStop) : kIOReturnNotReady; }
+
+IOReturn TGLDmic::readPosition(uint64_t *dpibBytes, uint64_t *hostTime, uint64_t *gen) {
+    if (!streaming || !hda) return kIOReturnNotReady;
+    uint32_t d = r32(VS_DPIB_BASE + VS_DPIB_STRIDE * CAP_IN_INDEX);
+    *hostTime = mach_absolute_time();
+    if (d == 0xFFFFFFFF) return kIOReturnNoDevice;
+    *dpibBytes = d % RING_BYTES;
+    *gen = generation;
+    return kIOReturnSuccess;
+}
+
+IOMemoryDescriptor *TGLDmic::ringMemory() {
+    if (gate) gate->runAction(gatedEnsureBuffers);
+    if (!ringBuf.mem) return nullptr;
+    ringBuf.mem->retain();
+    return ringBuf.mem;
+}
+
+uint32_t TGLDmic::stateBits() {
+    return (dspAlive() ? 1u : 0u) | (streaming ? 2u : 0u) | (serviceMode ? 4u : 0u);
+}
+
 bool TGLDmic::captureTest() {
     captureState = 0;
     LOG("cap: === phase 3 DMIC capture test ===");
-    const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx), dpib = VS_DPIB_BASE + VS_DPIB_STRIDE * idx;
-    if (everRunning & (1u << idx)) { capFail("input stream 6 in use by HDA driver", idx); return false; }
-    if (!ringBuf.alloc(pci, RING_BYTES) || !ptBuf.alloc(pci, 4096) || !capBdl.alloc(pci, 4096)) {
-        capFail("DMA alloc", 0); ringBuf.release(); ptBuf.release(); capBdl.release(); return false;
-    }
+    const uint32_t idx = CAP_IN_INDEX, dpib = VS_DPIB_BASE + VS_DPIB_STRIDE * idx;
     OSSafeReleaseNULL(capSnap);
     capSnap = OSData::withCapacity(SNAPSHOT_BYTES);
-    bool ok = false, started = false, setupDone = false;
+    bool ok = false;
     do {
         if (!capSnap) { capFail("snapshot alloc", 0); break; }
-        if (!prepareCaptureStream(idx, CAP_TAG)) break;
-        if (!replay(kIpc_setup, COUNT(kIpc_setup), "setup")) break;
-        setupDone = true;
-        // hda_dsp_pcm_trigger(START): host DMA first (wait FIFO ready), then IPC trigger
-        w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
-        uint32_t v;
-        bool fifoReady = pollHda(sd, 0x20000000, 0x20000000, 5000, &v);
-        LOG("cap: host DMA running, CTL 0x%08x (FIFORDY %s)", v, fifoReady ? "yes" : "no");
-        if (!replay(kIpc_start, COUNT(kIpc_start), "start")) break;
-        started = true;
+        if (!pipelineStart()) break;
 
         // Stream CAPTURE_SECONDS s (after 0.25 s warm-up). Keep the loudest 1-s block as the snapshot
         // and a per-100 ms mean |x| envelope (ch0) for the whole run.
@@ -211,19 +315,8 @@ bool TGLDmic::captureTest() {
         ok = signal;
     } while (false);
 
-    // hda_dsp_pcm_trigger(STOP) + hw_free: IPC stop, host DMA stop, PCM free, free widgets
-    if (started) replay(kIpc_stop, 1, "stop");
-    w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
-    pollHda(sd, HDA::SD_CTL_RUN, 0, 5000);
-    if (setupDone) {
-        if (started) replay(kIpc_stop + 1, COUNT(kIpc_stop) - 1, "pcm-free");
-        replay(kIpc_teardown, COUNT(kIpc_teardown), "teardown");
-    }
-    streamStopReset(sd);
-    w32(sd + HDA::SD_BDPL, 0); w32(sd + HDA::SD_BDPU, 0);
-    w32(sd, r32(sd) & ~SD_TAG_MASK);
-    w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) & ~(1u << idx));
-    ringBuf.release(); ptBuf.release(); capBdl.release();
+    pipelineStop();
+    if (!serviceMode) releaseCaptureBuffers();
     LOG("cap: done: %s", captureResult);
     return ok;
 }
