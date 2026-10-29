@@ -82,6 +82,7 @@ private:
     bool streamStopReset(uint32_t sd);
     void ensureSnoop(const char *who);
     bool snoopLogged {false};
+    uint32_t capRetries {0};
     bool prepareLoaderStream(uint32_t globalIndex, uint32_t tag, size_t fwBytes);
     void releaseLoaderStream(uint32_t globalIndex);
     void gating(bool enable);

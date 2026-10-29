@@ -44,6 +44,20 @@ void TGLDmic::joinPowerParent() {
         if (++pmSearchTicks == 30) { LOG("PM: no HDA driver on this controller - no power hold (unsupported setup)"); pmSearchTicks = 1000; }
         return;
     }
+    // Only AppleHDA idles the controller into reset while it stays the PCI device's driver; that is
+    // what the power hold is for. HDAUniversal keeps the controller up by itself, and a power child
+    // asking for "off" made it power the function down to D3 (audio out lost, v0.4.8 on Tahoe).
+    // tgldmicpm=1 forces joining, tgldmicpm=0 never joins.
+    const char *pcn = parent->getMetaClass()->getClassName();
+    int pmArg = -1;
+    PE_parse_boot_argn("tgldmicpm", &pmArg, sizeof(pmArg));
+    bool join = pmArg == 1 || (pmArg != 0 && strnstr(const_cast<char *>(pcn), "AppleHDA", 64));
+    if (!join) {
+        LOG("PM: HDA driver is %s - not joining its power tree (it keeps the controller powered)%s", pcn,
+            pmArg == 0 ? " [tgldmicpm=0]" : "");
+        pmSearchTicks = 1000;
+        return;
+    }
     PMinit();
     parent->joinPMtree(this);
     if (registerPowerDriver(this, gPowerStates, 2) != kIOReturnSuccess) {
@@ -102,10 +116,16 @@ bool TGLDmic::tryInit() {
     }
     uint16_t gcap = r16(HDA::GCAP);
     if (gcap == 0xFFFF || gcap == 0) { badReads++; return false; }
+    if (!(r32(HDA::LLCH) & HDA::CAP_NEXT_MASK)) { badReads++; return false; }   // capability list not readable yet
     numOut = (gcap >> 12) & 0xF; numIn = (gcap >> 8) & 0xF; numBidi = (gcap >> 3) & 0x1F;
     LOG("GCAP 0x%04x: %u in, %u out, %u bidi; HDA %u.%u; GCTL 0x%08x STATESTS 0x%04x (after %u bad reads)",
         gcap, numIn, numOut, numBidi, r8(HDA::VMAJ), r8(HDA::VMIN), r32(HDA::GCTL), r16(HDA::STATESTS), badReads);
     walkCapabilities();
+    if (!ppOffset) {                                  // controller went away mid-walk (D3/reset): try again
+        if (++capRetries <= 3) LOG("capability list unreadable (LLCH 0x%08x) - retrying", memoryDecoded() ? r32(HDA::LLCH) : 0);
+        mlOffset = spbOffset = drsmOffset = 0;
+        return false;
+    }
     ready = true;
     snapshot(true);
     return true;

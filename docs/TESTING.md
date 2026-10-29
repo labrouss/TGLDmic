@@ -15,6 +15,7 @@ For development and bug reports. Normal users only need `-tgldmic` (see [INSTALL
 | `-tgldmicoff` | – | Disables the kext completely |
 | `tgldmicdma=2` | – | Force physical DMA addresses (testing only; default uses the device or system IOMMU mapper) |
 | `tgldmicsnoop=0` | – | Leave the controller's no-snoop DMA bit as found (default: clear it so DMA sees CPU-written data) |
+| `tgldmicpm=1` / `=0` | – | Force / never join the HDA driver's power tree (default: only under AppleHDA) |
 
 `TGLDmicPhase` in ioreg shows the active mode. The `Log` property holds the kext's last 128 log lines.
 
