@@ -28,6 +28,8 @@ inline uint32_t CPA(uint32_t m) { return m << 24; }
 inline uint32_t CRST(uint32_t m) { return m; }
 inline uint32_t CSTALL(uint32_t m) { return m << 8; }
 constexpr uint32_t XMAN_MAGIC = 0x6e614d58;                           // "XMan"
+constexpr uint32_t VS_D0I3C = 0x104A, D0I3C_I3 = 1u << 2;            // 8-bit
+constexpr uint32_t VS_DPIB_BASE = 0x1084, VS_DPIB_STRIDE = 0x20;     // DMA position in decoupled mode
 }
 
 void TGLDmic::fail(const char *what, uint32_t value) {
@@ -182,6 +184,18 @@ bool TGLDmic::bootDsp() {
     if (!clBuf.alloc(pci, fwBytes) || !bdlBuf.alloc(pci, 4096)) { fail("DMA alloc (<4GB contiguous)", 0); return false; }
     memcpy(clBuf.virt, kSofTglRi + skip, fwBytes);
 
+    // DMA needs PCI bus mastering; AppleHDA may only enable it while it plays.
+    uint16_t cmd = pci->configRead16(kIOPCIConfigCommand);
+    bool forcedBme = false;
+    if (!(cmd & kIOPCICommandBusMaster)) {
+        pci->setBusMasterEnable(true); forcedBme = true;
+        LOG("boot: bus master was OFF (CMD 0x%04x) - enabled for the boot", cmd);
+    }
+    uint8_t d0i3 = r8(VS_D0I3C);
+    if (d0i3 & D0I3C_I3) {
+        w8(VS_D0I3C, d0i3 & ~D0I3C_I3);
+        LOG("boot: controller was in D0i3 (D0I3C 0x%02x) - cleared", d0i3);
+    }
     gating(false);
     bool ok = false;
     uint32_t v = 0;
@@ -196,12 +210,24 @@ bool TGLDmic::bootDsp() {
         if (!pollDsp(DSP::ROM_STATUS, FSR_MASK, FSR_INIT_DONE, 300000, &v)) { fail("ROM init done", v); break; }
         LOG("boot: ROM init done, FSR 0x%08x", v);
         // hda_cl_copy_fw: run the stream, wait for FW_ENTERED, stop
-        w32(sdOffset(idx), r32(sdOffset(idx)) | HDA::SD_CTL_RUN);
+        uint32_t sd = sdOffset(idx), dpib = VS_DPIB_BASE + VS_DPIB_STRIDE * idx;
+        LOG("boot: pre-run CMD 0x%04x INTCTL 0x%08x SD CTL 0x%08x CBL %u LVI %u FMT 0x%04x BDP 0x%08x%08x",
+            pci->configRead16(kIOPCIConfigCommand), r32(HDA::INTCTL), r32(sd), r32(sd + HDA::SD_CBL),
+            r16(sd + HDA::SD_LVI), r16(sd + HDA::SD_FMT), r32(sd + HDA::SD_BDPU), r32(sd + HDA::SD_BDPL));
+        // Same bits Linux sets (RUN + IOCE/FEIE/DEIE); INTCTL stays untouched so no MSI reaches AppleHDA.
+        w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
+        static const uint32_t probeUs[] = { 100, 1000, 10000, 100000 };
+        uint32_t waited = 0;
+        for (uint32_t t : probeUs) {
+            IODelay(t - waited); waited = t;
+            LOG("boot: +%uus CTL 0x%08x LPIB %u DPIB %u FSR 0x%08x", t, r32(sd), r32(sd + HDA::SD_LPIB),
+                r32(dpib), d32(DSP::ROM_STATUS));
+        }
         bool entered = pollDsp(DSP::ROM_STATUS, FSR_MASK, FSR_FW_ENTERED, 3000000, &v);
-        uint32_t lpib = r32(sdOffset(idx) + HDA::SD_LPIB);
-        w32(sdOffset(idx), r32(sdOffset(idx)) & ~HDA::SD_CTL_RUN);
-        if (!entered) { fail("FW_ENTERED", v); LOG("boot: loader LPIB %u of %zu", lpib, fwBytes); break; }
-        LOG("boot: code loader FW_ENTERED, FSR 0x%08x, LPIB %u", v, lpib);
+        uint32_t lpib = r32(sd + HDA::SD_LPIB), dp = r32(dpib), ctl = r32(sd);
+        w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
+        if (!entered) { fail("FW_ENTERED", v); LOG("boot: loader CTL 0x%08x LPIB %u DPIB %u of %zu", ctl, lpib, dp, fwBytes); break; }
+        LOG("boot: code loader FW_ENTERED, FSR 0x%08x, LPIB %u DPIB %u", v, lpib, dp);
         // FW_READY arrives as a DSP->host IPC in HIPCTDR
         if (!pollDsp(DSP::HIPCTDR, DSP::IPC_BUSY, DSP::IPC_BUSY, 1000000, &v)) { fail("FW_READY (HIPCTDR)", v); break; }
         uint32_t msg = v & 0x7FFFFFFF;
@@ -224,6 +250,8 @@ bool TGLDmic::bootDsp() {
         corePowerDown();
     }
     gating(true);
+    if (forcedBme && !keepRunning) pci->setBusMasterEnable(false);
+    if (d0i3 & D0I3C_I3) w8(VS_D0I3C, d0i3);
     LOG("boot: PPCTL 0x%08x after boot, AppleHDA streams untouched", r32(ppOffset + HDA::PP_PPCTL));
     return ok;
 }

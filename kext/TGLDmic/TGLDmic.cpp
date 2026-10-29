@@ -8,7 +8,7 @@ OSDefineMetaClassAndStructors(TGLDmic, IOService)
 
 #include <stdarg.h>
 #define LOG(fmt, ...) logLine(fmt, ##__VA_ARGS__)
-static constexpr unsigned kLogLines = 64;
+static constexpr unsigned kLogLines = 128;
 
 static constexpr uint32_t kPollMs = 2000;      // stream observation interval
 static constexpr uint32_t kPollCount = 90;     // 3 minutes, then stop polling
@@ -75,7 +75,7 @@ bool TGLDmic::start(IOService *provider) {
     bootRequested = bootArg("-tgldmicboot");
     keepRunning = bootArg("-tgldmickeep");
 
-    LOG("TGLDmic v0.2.0 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
+    LOG("TGLDmic v0.2.1 on %s (Darwin %d.%d), dsp-reads=%s, dsp-boot=%s%s",
         provider->getName(), version_major, version_minor, readDsp ? "on" : "off",
         bootRequested ? "ON" : "off", keepRunning ? " (keep running)" : "");
 
