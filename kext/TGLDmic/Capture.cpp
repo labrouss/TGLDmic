@@ -19,7 +19,6 @@ constexpr uint16_t FMT_48K_32BIT_4CH = 0x0043;       // BASE 48k, BITS=100 (32),
 constexpr uint32_t FRAME_BYTES = 16;                  // 4 ch x 4 bytes
 constexpr uint32_t SNAPSHOT_BYTES = 48000 * FRAME_BYTES; // 1 s
 constexpr uint32_t CAPTURE_SECONDS = 8, ENV_STEP_BYTES = 4800 * FRAME_BYTES; // envelope: 100 ms steps
-constexpr uint32_t CAP_IN_INDEX = 6, CAP_TAG = 7;     // spare input descriptor (AppleHDA uses in0/in1)
 }
 
 void TGLDmic::capFail(const char *what, uint32_t value) {
@@ -70,7 +69,7 @@ bool TGLDmic::replay(const IpcMsg *list, uint32_t count, const char *phase) {
             buf[kPcmParamPhy] = (uint32_t)ptBuf.iova;
             buf[kPcmParamPages] = PAGES;
             buf[kPcmParamSize] = RING_BYTES;
-            buf[kPcmParamTagCh] = (4u << 16) | CAP_TAG;
+            buf[kPcmParamTagCh] = (4u << 16) | capStreamTag;
             buf[kPcmParamPeriod] = PERIOD_BYTES;
         }
         if (!ipcSend(buf, m.words, reply, 5)) {
@@ -150,16 +149,18 @@ bool TGLDmic::dspAlive(bool logReason) {
 // Host stream prepare + IPC setup + host DMA run + IPC trigger start (hda_dsp_pcm_hw_params/trigger order)
 bool TGLDmic::pipelineStart() {
     if (streaming) return true;
-    const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx);
+    const uint32_t idx = capInIndex, sd = sdOffset(idx);
     // Refuse only if the HDA driver itself is running this descriptor right now (RUN set while it is
     // still coupled to the link). A past observation is not enough: it may have been our own stream.
     if ((r32(sd) & HDA::SD_CTL_RUN) && !(r32(ppOffset + HDA::PP_PPCTL) & (1u << idx))) {
-        capFail("input stream 6 in use by HDA driver", idx); return false;
+        char failMsg[64];
+        snprintf(failMsg, sizeof(failMsg), "input stream %u in use by HDA driver", idx);
+        capFail(failMsg, idx); return false;
     }
     everRunning &= ~(1u << idx);
     if (!ensureCaptureBuffers()) { capFail("DMA alloc", 0); return false; }
     bzero(ringBuf.virt, ringBuf.size);
-    if (!prepareCaptureStream(idx, CAP_TAG)) return false;
+    if (!prepareCaptureStream(idx, capStreamTag)) return false;
     if (!replay(kIpc_setup, COUNT(kIpc_setup), "setup")) { pipelineStop(); return false; }
     setupDone = true;
     w32(sd, r32(sd) | HDA::SD_CTL_RUN | SD_CTL_INT_MASK);
@@ -175,7 +176,7 @@ bool TGLDmic::pipelineStart() {
 
 // IPC trigger stop, host DMA stop, PCM free, free widgets, release the descriptor (hda_dsp_pcm_trigger/hw_free)
 void TGLDmic::pipelineStop() {
-    const uint32_t idx = CAP_IN_INDEX, sd = sdOffset(idx);
+    const uint32_t idx = capInIndex, sd = sdOffset(idx);
     if (triggered && dsp) replay(kIpc_stop, 1, "stop");
     w32(sd, r32(sd) & ~(HDA::SD_CTL_RUN | SD_CTL_INT_MASK));
     pollHda(sd, HDA::SD_CTL_RUN, 0, 5000);
@@ -281,7 +282,7 @@ IOReturn TGLDmic::clientStop()  { return gate ? gate->runAction(gatedStop) : kIO
 
 IOReturn TGLDmic::readPosition(uint64_t *dpibBytes, uint64_t *hostTime, uint64_t *gen) {
     if (!streaming || !hda) return kIOReturnNotReady;
-    uint32_t d = r32(VS_DPIB_BASE + VS_DPIB_STRIDE * CAP_IN_INDEX);
+    uint32_t d = r32(VS_DPIB_BASE + VS_DPIB_STRIDE * capInIndex);
     *hostTime = mach_absolute_time();
     if (d == 0xFFFFFFFF) return kIOReturnNoDevice;
     *dpibBytes = d % RING_BYTES;
@@ -303,7 +304,7 @@ uint32_t TGLDmic::stateBits() {
 bool TGLDmic::captureTest() {
     captureState = 0;
     LOG("cap: === phase 3 DMIC capture test ===");
-    const uint32_t idx = CAP_IN_INDEX, dpib = VS_DPIB_BASE + VS_DPIB_STRIDE * idx;
+    const uint32_t idx = capInIndex, dpib = VS_DPIB_BASE + VS_DPIB_STRIDE * idx;
     OSSafeReleaseNULL(capSnap);
     capSnap = OSData::withCapacity(SNAPSHOT_BYTES);
     bool ok = false;

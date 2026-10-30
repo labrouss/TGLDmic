@@ -13,6 +13,11 @@ For development and bug reports. Normal users only need `-tgldmic` (see [INSTALL
 | `tgldmicdelay=<s>` | 2/3 | Delay before the test, 10–170 s (default 20) |
 | `-tgldmic` | 4 – service | Normal use: microphone exposed to Core Audio |
 | `-tgldmicoff` | – | Disables the kext completely |
+| `-tgldmiccml` | – | Force Comet Lake / Whiskey Lake platform handling (`sof-cml.ri`, cAVS 1.8 4-core mask) |
+| `-tgldmictgl` | – | Force Tiger Lake platform handling (`sof-tgl.ri`, cAVS 2.5 1-core mask) |
+| `-tgldmicforce` | – | Force probe even if PCI device ID is unrecognized |
+| `tgldmicfw=cml` / `=tgl` | – | Explicitly select embedded firmware binary |
+| `tgldmicin=<idx>` | – | Force specific input stream descriptor index for capture (0-based) |
 | `tgldmicdma=2` | – | Force physical DMA addresses (testing only; default uses the device or system IOMMU mapper) |
 | `tgldmicsnoop=0` / `=2` | – | DEVC no-snoop enable (PCI 0x78 bit 11, required by the DSP ROM): default sets it while the DSP is powered and restores it after; `0` never touches it, `2` leaves it set |
 | `tgldmicpm=1` / `=0` | – | Force / never join the HDA driver's power tree (default: only under AppleHDA) |

@@ -9,13 +9,20 @@
 
 struct IpcMsg;   // IpcReplay.hpp
 
-// Phase 1: read-only observer. Matches the HDA controller next to AppleHDA (own
-// IOMatchCategory, provider is never opened), maps BAR0 and records which stream
-// descriptors AppleHDA uses. Nothing is written to the hardware.
+// TGLDmic: Digital Microphone driver for Intel Tiger Lake (cAVS 2.5) and
+// Comet Lake / Cannon Lake / Coffee Lake (cAVS 1.8), including ThinkPad X1 Carbon Gen 7.
+// Matches the HDA controller next to AppleHDA (own IOMatchCategory, provider is never opened),
+// boots Intel SOF production-signed firmware on the audio DSP and streams 48 kHz DMIC audio.
 class TGLDmic : public IOService {
     OSDeclareDefaultStructors(TGLDmic)
     friend class TGLDmicUserClient;
 public:
+    enum PlatformFamily : uint32_t {
+        kPlatformUnknown   = 0,
+        kPlatformTigerLake  = 1, // Intel Tiger Lake LP/H (cAVS 2.5)
+        kPlatformCometLake  = 2, // Intel Comet Lake / Cannon Lake / Coffee Lake (cAVS 1.8)
+    };
+
     // ---- Phase 4 service API (called by TGLDmicUserClient; all serialized on the work loop) ----
     static constexpr uint32_t kRingBytes = 0x10000, kFrameBytes = 16, kRate = 48000, kChannels = 4;
     IOReturn clientStart();                       // refcounted: first start boots DSP if needed + starts pipeline
@@ -29,6 +36,9 @@ public:
     void stop(IOService *provider) override;
     void free() override;
 
+    PlatformFamily getPlatformFamily() const { return platformFamily; }
+    const char *platformName() const;
+
 private:
     IOPCIDevice *pci {nullptr};
     IOMemoryMap *bar0 {nullptr};
@@ -37,6 +47,9 @@ private:
     volatile uint8_t *dsp {nullptr};
     IOWorkLoop *workLoop {nullptr};
     IOTimerEventSource *timer {nullptr};
+
+    PlatformFamily platformFamily {kPlatformUnknown};
+    uint32_t pciId {0};
 
     uint32_t numIn {0}, numOut {0}, numBidi {0};
     uint32_t ppOffset {0}, mlOffset {0}, spbOffset {0}, drsmOffset {0};
@@ -89,6 +102,7 @@ private:
     bool prepareLoaderStream(uint32_t globalIndex, uint32_t tag, size_t fwBytes);
     void releaseLoaderStream(uint32_t globalIndex);
     void gating(bool enable);
+    uint32_t targetCoreMask() const;
     bool corePowerUp();
     bool coreRun();
     void corePowerDown();
@@ -96,6 +110,8 @@ private:
 
     // ---- Phase 3: DMIC capture test (only with -tgldmiccap, implies boot) ----
     bool captureRequested {false};
+    uint32_t capInIndex {6};
+    uint32_t capStreamTag {7};
     uint32_t bootDelaySec {20};      // boot arg tgldmicdelay=<s>, 10..170
     uint32_t captureState {0};        // 0 idle, 1 ok, 2 failed
     char captureResult[96] {};

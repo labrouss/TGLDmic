@@ -1,4 +1,5 @@
-// Phase 2: boot the cAVS 2.5 audio DSP with SOF firmware next to AppleHDA.
+// Phase 2: boot the cAVS 1.8 (Comet Lake / Cannon Lake) or cAVS 2.5 (Tiger Lake) audio DSP
+// with Intel production-signed SOF firmware next to AppleHDA.
 // Sequence mirrors Linux sound/soc/sof/intel/hda-loader.c (cl_dsp_init + hda_cl_copy_fw),
 // with two deliberate differences:
 //   * no stream / IPC interrupts are enabled (the MSI belongs to AppleHDA) - everything is polled;
@@ -9,6 +10,8 @@
 
 extern "C" const unsigned char kSofTglRi[];
 extern "C" const unsigned int kSofTglRiSize;
+extern "C" const unsigned char kSofCmlRi[];
+extern "C" const unsigned int kSofCmlRiSize;
 
 #define LOG(fmt, ...) logLine(fmt, ##__VA_ARGS__)
 
@@ -189,11 +192,33 @@ void TGLDmic::releaseLoaderStream(uint32_t idx) {
     w32(ppOffset + HDA::PP_PPCTL, r32(ppOffset + HDA::PP_PPCTL) & ~(1u << idx));
 }
 
+uint32_t TGLDmic::targetCoreMask() const {
+    int maskArg = -1;
+    if (PE_parse_boot_argn("tgldmiccoremask", &maskArg, sizeof(maskArg)) && maskArg >= 1)
+        return (uint32_t)maskArg;
+    // On Comet Lake/Cannon Lake (cAVS 1.8), Linux SOF specifies host_managed_cores_mask = 0xF.
+    // Tiger Lake uses BIT(0) = 0x1.
+    return (platformFamily == kPlatformCometLake) ? 0x0F : CORE0;
+}
+
 bool TGLDmic::corePowerUp() {
-    dw32(DSP::ADSPCS, d32(DSP::ADSPCS) | SPA(CORE0));
-    uint32_t v;
-    if (!pollDsp(DSP::ADSPCS, CPA(CORE0), CPA(CORE0), 50000, &v)) { fail("core0 power up (CPA)", v); return false; }
-    LOG("boot: core0 powered, ADSPCS 0x%08x", v);
+    uint32_t mask = targetCoreMask();
+    dw32(DSP::ADSPCS, d32(DSP::ADSPCS) | SPA(mask));
+    uint32_t v = 0;
+    if (!pollDsp(DSP::ADSPCS, CPA(mask), CPA(mask), 50000, &v)) {
+        // If multi-core power up timed out on CPA, check if core 0 powered up
+        if (mask != CORE0 && (v & CPA(CORE0)) == CPA(CORE0)) {
+            LOG("boot: core0 powered (CPA 0x%08x), continuing", v);
+            return true;
+        }
+        // Fallback: try core 0 only
+        dw32(DSP::ADSPCS, (d32(DSP::ADSPCS) & ~SPA(mask)) | SPA(CORE0));
+        if (!pollDsp(DSP::ADSPCS, CPA(CORE0), CPA(CORE0), 50000, &v)) {
+            fail("core0 power up (CPA)", v);
+            return false;
+        }
+    }
+    LOG("boot: core powered, ADSPCS 0x%08x", v);
     return true;
 }
 
@@ -212,19 +237,20 @@ bool TGLDmic::coreRun() {
 
 void TGLDmic::corePowerDown() {
     if (!dsp) return;
+    uint32_t mask = targetCoreMask();
     dw32(DSP::ADSPCS, d32(DSP::ADSPCS) | CSTALL(CORE0));
     dw32(DSP::ADSPCS, d32(DSP::ADSPCS) | CRST(CORE0));
     pollDsp(DSP::ADSPCS, CRST(CORE0), CRST(CORE0), 50000);
-    dw32(DSP::ADSPCS, d32(DSP::ADSPCS) & ~SPA(CORE0));
+    dw32(DSP::ADSPCS, d32(DSP::ADSPCS) & ~(SPA(mask) | SPA(CORE0)));
     uint32_t v = 0;
     pollDsp(DSP::ADSPCS, CPA(CORE0), 0, 50000, &v);
-    LOG("boot: core0 powered down, ADSPCS 0x%08x", v);
+    LOG("boot: core powered down, ADSPCS 0x%08x", v);
     setNoSnoop(false);                  // DSP off: give the HDA driver its DEVC back
 }
 
 bool TGLDmic::bootDsp() {
     bootState = 0;
-    LOG("boot: === phase 2 DSP boot attempt ===");
+    LOG("boot: === phase 2 DSP boot attempt (%s) ===", platformName());
     if (!ready || !memoryDecoded() || !inD0()) { fail("controller not ready", 0); return false; }
     if (!ppOffset) { fail("no PP capability", 0); return false; }
     if (!dsp) {
@@ -237,12 +263,34 @@ bool TGLDmic::bootDsp() {
     if (adspcs == 0xFFFFFFFF) { fail("ADSPCS unreadable", adspcs); return false; }
     if (adspcs & CPA(CORE0)) { LOG("boot: core0 already powered - resetting first"); corePowerDown(); }
 
+    // Select firmware according to detected platform family or user boot-arg override
+    const unsigned char *fwData = nullptr;
+    unsigned int fwTotalSize = 0;
+    const char *fwName = nullptr;
+
+    char fwArg[16] = {};
+    if (PE_parse_boot_argn("tgldmicfw", fwArg, sizeof(fwArg))) {
+        if (strcmp(fwArg, "cml") == 0 || strcmp(fwArg, "cnl") == 0) {
+            fwData = kSofCmlRi; fwTotalSize = kSofCmlRiSize; fwName = "sof-cml.ri (manual)";
+        } else if (strcmp(fwArg, "tgl") == 0) {
+            fwData = kSofTglRi; fwTotalSize = kSofTglRiSize; fwName = "sof-tgl.ri (manual)";
+        }
+    }
+
+    if (!fwData) {
+        if (platformFamily == kPlatformCometLake) {
+            fwData = kSofCmlRi; fwTotalSize = kSofCmlRiSize; fwName = "sof-cml.ri (cAVS 1.8 Comet Lake)";
+        } else {
+            fwData = kSofTglRi; fwTotalSize = kSofTglRiSize; fwName = "sof-tgl.ri (cAVS 2.5 Tiger Lake)";
+        }
+    }
+
     // Firmware: skip the SOF extended manifest ("XMan" header, full_size at +4)
-    const uint32_t *w = reinterpret_cast<const uint32_t *>(kSofTglRi);
+    const uint32_t *w = reinterpret_cast<const uint32_t *>(fwData);
     size_t skip = (w[0] == XMAN_MAGIC) ? w[1] : 0;
-    if (skip >= kSofTglRiSize) { fail("bad firmware manifest", skip); return false; }
-    size_t fwBytes = kSofTglRiSize - skip;
-    LOG("boot: firmware %u bytes, payload %zu bytes after %zu-byte ext manifest", kSofTglRiSize, fwBytes, skip);
+    if (skip >= fwTotalSize) { fail("bad firmware manifest", (uint32_t)skip); return false; }
+    size_t fwBytes = fwTotalSize - skip;
+    LOG("boot: %s, %u bytes total, payload %zu bytes after %zu-byte ext manifest", fwName, fwTotalSize, fwBytes, skip);
 
     // Spare output stream: highest output descriptor (AppleHDA starts from output 0)
     uint32_t outIdx = numOut - 1, idx = numIn + outIdx, tag = outIdx + 1;
@@ -251,7 +299,7 @@ bool TGLDmic::bootDsp() {
     }
 
     if (!clBuf.alloc(pci, fwBytes) || !bdlBuf.alloc(pci, 4096)) { fail("DMA alloc (<4GB contiguous)", 0); return false; }
-    memcpy(clBuf.virt, kSofTglRi + skip, fwBytes);
+    memcpy(clBuf.virt, fwData + skip, fwBytes);
     {
         IOMapper *m = IOMapper::copyMapperForDevice(pci);
         LOG("boot: DMA device mapper %s, mode %s, fw phys 0x%llx -> bus 0x%llx",

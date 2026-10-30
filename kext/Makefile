@@ -1,7 +1,8 @@
 # Build TGLDmic.kext on macOS (Xcode CLT). make SDK=/path/to/MacKernelSDK
 SDK     ?= $(CURDIR)/../MacKernelSDK
-# Intel production-signed (the CSE rejects community-signed builds: ROM error 44)
-FWIMAGE  = ../firmware/intel/sof-tgl.ri
+# Intel production-signed SOF firmwares (the CSE rejects community-signed builds: ROM error 44)
+FW_TGL   = ../firmware/intel/sof-tgl.ri
+FW_CML   = ../firmware/intel/sof-cml.ri
 OBJS     = build/TGLDmic.o build/DspBoot.o build/Capture.o build/TGLDmicUserClient.o build/Firmware.o build/kmod_info.o
 OUT      = build/TGLDmic.kext
 ARCH     = -arch x86_64 -mmacosx-version-min=10.15
@@ -18,9 +19,9 @@ all: $(OUT)
 build/%.o: TGLDmic/%.cpp TGLDmic/*.hpp
 	@mkdir -p build
 	clang++ $(CXXFLAGS) -c $< -o $@
-build/Firmware.c: $(FWIMAGE) ../tools/gen-fw.py
+build/Firmware.c: $(FW_TGL) $(FW_CML) ../tools/gen-fw.py
 	@mkdir -p build
-	python3 ../tools/gen-fw.py $(FWIMAGE) $@
+	python3 ../tools/gen-fw.py --tgl $(FW_TGL) --cml $(FW_CML) -o $@
 build/Firmware.o: build/Firmware.c
 	clang $(CFLAGS) -c $< -o $@
 build/kmod_info.o: TGLDmic/kmod_info.c

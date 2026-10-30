@@ -79,16 +79,76 @@ IOReturn TGLDmic::setPowerState(unsigned long state, IOService *) {
     return kIOPMAckImplied;
 }
 
+const char *TGLDmic::platformName() const {
+    switch (platformFamily) {
+        case kPlatformCometLake: return "Comet Lake / Cannon Lake (cAVS 1.8)";
+        case kPlatformTigerLake: return "Tiger Lake (cAVS 2.5)";
+        default: return "Unknown";
+    }
+}
+
 IOService *TGLDmic::probe(IOService *provider, SInt32 *score) {
     if (bootArg("-tgldmicoff")) return nullptr;
     auto dev = OSDynamicCast(IOPCIDevice, provider);
     if (!dev) return nullptr;
-    // Physical ID check (OpenCore may spoof device-id for AppleHDA).
-    uint32_t id = dev->configRead32(kIOPCIConfigVendorID);
-    if (id != 0xA0C88086) {
-        IOLog("TGLDmic: probe: unexpected PCI id %08x, not attaching\n", id);
+
+    pciId = dev->configRead32(kIOPCIConfigVendorID);
+    uint16_t vendor = pciId & 0xFFFF;
+    uint16_t device = (pciId >> 16) & 0xFFFF;
+
+    if (vendor != 0x8086) {
+        IOLog("TGLDmic: probe: unexpected PCI vendor %04x (id %08x), not attaching\n", vendor, pciId);
         return nullptr;
     }
+
+    platformFamily = kPlatformUnknown;
+    switch (device) {
+        // Comet Lake / Cannon Lake / Coffee Lake family (cAVS 1.8)
+        case 0x02C8: // Comet Lake PCH-LP (Lenovo ThinkPad X1 Carbon Gen 7 i7-10710U / i5-10210U)
+        case 0x9DC8: // Cannon Lake / Whiskey Lake PCH-LP (Lenovo ThinkPad X1 Carbon Gen 7 i7-8565U)
+        case 0x06C8: // Comet Lake PCH-H
+        case 0xA348: // Cannon Point / Coffee Lake PCH-H
+            platformFamily = kPlatformCometLake;
+            break;
+
+        // Tiger Lake family (cAVS 2.5)
+        case 0xA0C8: // Tiger Lake-LP (11th-gen Core, UP3/UP4)
+        case 0x43C8: // Tiger Lake-H
+            platformFamily = kPlatformTigerLake;
+            break;
+
+        // Spoofed IDs (e.g. OpenCore spoof for AppleALC)
+        case 0x34C8: // Ice Lake-LP spoof
+            // Default to Comet Lake if running on Comet Lake/Cannon Lake hardware
+            platformFamily = kPlatformCometLake;
+            break;
+
+        default:
+            break;
+    }
+
+    // Explicit boot-arg overrides:
+    // -tgldmiccml: force Comet Lake / Cannon Lake mode
+    // -tgldmictgl: force Tiger Lake mode
+    // -tgldmicforce: attach regardless of PCI ID
+    if (bootArg("-tgldmiccml")) {
+        platformFamily = kPlatformCometLake;
+    } else if (bootArg("-tgldmictgl")) {
+        platformFamily = kPlatformTigerLake;
+    }
+
+    if (platformFamily == kPlatformUnknown) {
+        if (bootArg("-tgldmicforce")) {
+            platformFamily = kPlatformCometLake;
+            IOLog("TGLDmic: probe: forced attach on unlisted PCI ID 8086:%04x (-tgldmicforce)\n", device);
+        } else {
+            IOLog("TGLDmic: probe: unrecognised PCI id 8086:%04x (id %08x), not attaching (use -tgldmiccml or -tgldmicforce to override)\n",
+                  device, pciId);
+            return nullptr;
+        }
+    }
+
+    IOLog("TGLDmic: probe: attaching to %s (PCI 8086:%04x)\n", platformName(), device);
     return super::probe(provider, score);
 }
 
@@ -126,6 +186,12 @@ bool TGLDmic::tryInit() {
         mlOffset = spbOffset = drsmOffset = 0;
         return false;
     }
+    capInIndex = (numIn > 6) ? 6 : (numIn > 0 ? numIn - 1 : 0);
+    int inArg = -1;
+    if (PE_parse_boot_argn("tgldmicin", &inArg, sizeof(inArg)) && inArg >= 0 && (uint32_t)inArg < numIn)
+        capInIndex = (uint32_t)inArg;
+    capStreamTag = capInIndex + 1;
+    LOG("cap: configured input stream %u, tag %u", capInIndex, capStreamTag);
     ready = true;
     snapshot(true);
     return true;
@@ -269,14 +335,16 @@ void TGLDmic::publish() {
         if (capSnap && capSnap->getLength()) setProperty("CaptureSnapshot", capSnap);
         if (envLen) if (auto d = OSData::withBytes(env, envLen * 4)) { setProperty("CaptureEnvelope", d); d->release(); }
     }
+    setProperty("PlatformFamily", platformName());
+    setProperty("PciVendorDeviceId", pciId, 32);
     if (logRing) { if (auto copy = OSArray::withArray(logRing)) { setProperty("Log", copy); copy->release(); } }
     if (ready && ppOffset && hda) setProperty("PPCTL", r32(ppOffset + HDA::PP_PPCTL), 32);
     if (ready && dsp) setProperty("ADSPCS", d32(DSP::ADSPCS), 32);
     if (!ready) return;
     // Suggested spare descriptors for the DSP path: highest input and highest output not used by AppleHDA.
     int spareIn = -1, spareOut = -1;
-    for (int i = (int)numIn - 1; i >= 0; i--) if (!(everRunning & (1u << i))) { spareIn = i; break; }
-    for (int i = (int)numOut - 1; i >= 0; i--) if (!(everRunning & (1u << (numIn + i)))) { spareOut = i; break; }
+    for (int i = (int)numIn - 1; i >= 0; i--) if (!(everRunning & (1u << (uint32_t)i))) { spareIn = i; break; }
+    for (int i = (int)numOut - 1; i >= 0; i--) if (!(everRunning & (1u << (numIn + (uint32_t)i)))) { spareOut = i; break; }
     setProperty("SpareInputStream", (unsigned long long)(spareIn < 0 ? 0xFF : spareIn), 32);
     setProperty("SpareOutputStream", (unsigned long long)(spareOut < 0 ? 0xFF : spareOut), 32);
 }

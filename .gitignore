@@ -4,3 +4,4 @@ captures/**/*.ri
 kext/build/
 hal/build/
 dist/
+.DS_Store
