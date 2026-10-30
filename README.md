@@ -11,8 +11,6 @@ Internal digital microphones (DMIC) of Intel Tiger Lake and Comet Lake / Cannon 
 
 > Unofficial community project. Not affiliated with or endorsed by Intel, Apple or any laptop vendor.
 
-<p align="center"><a href="https://hits.sh/github.com/labrouss/TGLDmic/"><img src="https://hits.sh/github.com/labrouss/TGLDmic.svg?view=today-total&style=flat-square&label=visits" alt="visits"></a></p>
-
 On modern Intel laptops (Tiger Lake, Comet Lake, Whiskey Lake, etc.) the built-in digital microphones are not wired to the HDA codec but to the
 Smart Sound DSP (cAVS), so AppleALC cannot make them work and hackintoshes end up without an internal mic.
 TGLDmic boots Intel's signed SOF firmware on that DSP and exposes the mics to macOS as a normal input device,
@@ -91,6 +89,7 @@ Locally on macOS with Xcode command-line tools and [MacKernelSDK](https://github
 | `docs/` | Install, testing, architecture |
 
 ## Credits
+- [labrouss](https://github.com/labrouss) - for the original TGLDmic
 - [Sound Open Firmware](https://github.com/thesofproject) — the DSP firmware and the Linux driver this work is based on
 - [acidanthera](https://github.com/acidanthera) — MacKernelSDK, OpenCore, AppleALC
 
