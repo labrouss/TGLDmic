@@ -8,6 +8,8 @@ Internal digital microphones (DMIC) of Intel Tiger Lake laptops via the Intel Sm
 
 > Unofficial community project. Not affiliated with or endorsed by Intel, Apple or any laptop vendor.
 
+<p align="center"><a href="https://hits.sh/github.com/labrouss/TGLDmic/"><img src="https://hits.sh/github.com/labrouss/TGLDmic.svg?view=today-total&style=flat-square&label=visits" alt="visits"></a></p>
+
 On many Tiger Lake laptops the built-in microphones are not wired to the HDA codec but to the
 Smart Sound DSP, so AppleALC cannot make them work and hackintoshes end up without an internal mic.
 TGLDmic boots Intel's SOF firmware on that DSP and exposes the mics to macOS as a normal input device,
