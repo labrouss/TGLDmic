@@ -46,9 +46,9 @@ bardump(){ [ "${BARDUMP:-0}" = 1 ] || return 0; [ "$(cat /sys/bus/pci/devices/$P
 # ---------- 1. static material ----------
 log "Copying firmware, topology, NHLT"
 # keep signed and community builds apart (same file name!) - only the Intel-signed one passes the CSE on production laptops
-for f in /lib/firmware/intel/sof/sof-tgl.ri*; do [ -f "$f" ] && cp -v "$f" "$OUT/fw/intel-signed-$(basename "$f")" >> "$LOG"; done
-for f in /lib/firmware/intel/sof/community/sof-tgl.ri*; do [ -f "$f" ] && cp -v "$f" "$OUT/fw/community-$(basename "$f")" >> "$LOG"; done
-for f in /lib/firmware/intel/sof-tplg/sof-hda-generic-4ch.tplg* /lib/firmware/intel/sof-tplg/sof-hda-generic.tplg*; do
+for f in /lib/firmware/intel/sof/sof-*.ri*; do [ -f "$f" ] && cp -v "$f" "$OUT/fw/intel-signed-$(basename "$f")" >> "$LOG"; done
+for f in /lib/firmware/intel/sof/community/sof-*.ri*; do [ -f "$f" ] && cp -v "$f" "$OUT/fw/community-$(basename "$f")" >> "$LOG"; done
+for f in /lib/firmware/intel/sof-tplg/sof-hda-generic*.tplg* /lib/firmware/intel/sof-tplg/sof-cml*.tplg* /lib/firmware/intel/sof-tplg/sof-cnl*.tplg*; do
   [ -f "$f" ] && cp -v "$f" "$OUT/fw/" >> "$LOG"
 done
 for f in "$OUT"/fw/*.zst; do [ -f "$f" ] && zstd -dq "$f"; done
@@ -92,6 +92,7 @@ options snd_sof_intel_hda_generic dyndbg=+p
 options snd_sof_intel_hda dyndbg=+p
 options snd_sof_pci dyndbg=+p
 options snd_sof_pci_intel_tgl dyndbg=+p
+options snd_sof_pci_intel_cnl dyndbg=+p
 options snd_soc_skl_hda_dsp dyndbg=+p
 EOF
 dmesg -C
@@ -107,7 +108,7 @@ else
 fi
 log "Loading SOF stack"
 echo on > /sys/bus/pci/devices/$PCI/power/control 2>/dev/null
-modprobe snd_sof_pci_intel_tgl >> "$LOG" 2>&1
+modprobe snd_sof_pci_intel_cnl >> "$LOG" 2>&1 || modprobe snd_sof_pci_intel_tgl >> "$LOG" 2>&1
 modprobe snd_soc_skl_hda_dsp >> "$LOG" 2>&1
 for i in $(seq 1 30); do grep -q sof /proc/asound/cards 2>/dev/null && break; sleep 1; done
 sleep 3

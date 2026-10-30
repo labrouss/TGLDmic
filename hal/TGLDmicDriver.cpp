@@ -53,6 +53,7 @@ static UInt32 gRefCount = 0;
 static UInt64 gIORunning = 0;
 static std::atomic<Float32> gVolumeDB { kVolumeDefaultDB };
 static std::atomic<Float32> gGain { 15.85f };            // 10^(24/20)
+static int gChannelMode = 0;                             // 0: ch0/1, 1: ch2/3, 2: 4ch blend
 
 // kernel connection
 static io_connect_t gConn = IO_OBJECT_NULL;
@@ -612,6 +613,14 @@ static OSStatus StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDev
     OSStatus r = kAudioHardwareNoError;
     pthread_mutex_lock(&gStateMutex);
     if (gIORunning == 0) {
+        CFPropertyListRef pref = CFPreferencesCopyAppValue(CFSTR("ChannelMode"), CFSTR("com.labrouss.TGLDmic"));
+        if (pref) {
+            if (CFGetTypeID(pref) == CFNumberGetTypeID()) {
+                int val = 0;
+                if (CFNumberGetValue((CFNumberRef)pref, kCFNumberIntType, &val)) gChannelMode = val;
+            }
+            CFRelease(pref);
+        }
         if (!openKernel()) r = kAudioHardwareNotRunningError;
         else {
             kern_return_t kr = IOConnectCallScalarMethod(gConn, kTGLDmicMethodStart, nullptr, 0, nullptr, nullptr);
@@ -624,7 +633,7 @@ static OSStatus StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDev
     }
     if (r == kAudioHardwareNoError) gIORunning++;
     pthread_mutex_unlock(&gStateMutex);
-    if (r == kAudioHardwareNoError) LOG("TGLDmic: IO started (%llu clients)", gIORunning);
+    if (r == kAudioHardwareNoError) LOG("TGLDmic: IO started (%llu clients, channelMode %d)", gIORunning, gChannelMode);
     return r;
 }
 
@@ -687,7 +696,17 @@ static OSStatus DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID
     const Float32 g = gGain.load() / 2147483648.0f;
     for (UInt32 i = 0; i < frames; i++) {
         const int32_t *f = ring + ((t + i) % kRingFrames) * 4;
-        Float32 l = (Float32)f[0] * g, r = (Float32)f[1] * g;
+        Float32 l = 0.f, r = 0.f;
+        if (gChannelMode == 1) {
+            l = (Float32)f[2] * g;
+            r = (Float32)f[3] * g;
+        } else if (gChannelMode == 2) {
+            l = ((Float32)f[0] + (Float32)f[2]) * 0.5f * g;
+            r = ((Float32)f[1] + (Float32)f[3]) * 0.5f * g;
+        } else {
+            l = (Float32)f[0] * g;
+            r = (Float32)f[1] * g;
+        }
         out[2 * i]     = l > 1.f ? 1.f : l < -1.f ? -1.f : l;
         out[2 * i + 1] = r > 1.f ? 1.f : r < -1.f ? -1.f : r;
     }

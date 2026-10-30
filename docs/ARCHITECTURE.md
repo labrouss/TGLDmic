@@ -1,13 +1,32 @@
-# TGLDmic — Tiger Lake DMIC driver for macOS
+# TGLDmic — Tiger Lake & Comet Lake DMIC driver for macOS
 
-Target: Intel Tiger Lake laptops (cAVS 2.5 / TGL-LP, PCI 8086:A0C8) with a PDM mic array on the DSP.
-Reference machine: HP EliteBook 840 G8 (SSID 103c:8ab9), 4-element linear PDM mic array on the DSP DMIC0/1 lines (NHLT link type PDM).
+Target: Intel Tiger Lake (cAVS 2.5 / TGL-LP, PCI `8086:A0C8`, `8086:43C8`) and Comet Lake / Whiskey Lake / Coffee Lake (cAVS 1.8 / CML-LP, PCI `8086:02C8`, `8086:9DC8`, `8086:A348`, `8086:06C8`) laptops with a PDM mic array on the DSP.
+
+Reference machines:
+* **HP EliteBook 840 G8** (Tiger Lake i5-1135G7, PCI `8086:A0C8`, SSID `103c:8ab9`): 4-element linear PDM mic array on DSP DMIC0/1 lines (NHLT link type PDM, cAVS 2.5).
+* **Lenovo ThinkPad X1 Carbon Gen 7** (Comet Lake i7-10710U / i7-10510U, PCI `8086:02C8`, SSID `17aa:2292`): 4-channel 360-degree far-field PDM mic array on ALC285 + cAVS 1.8 DSP.
 
 ## Constraint
-AppleHDA (+AppleALC, layout 11) already drives the ALC285 codec for speakers
+AppleHDA (+AppleALC, layout 11 / 71) already drives the ALC285 codec for speakers
 and the headset jack. The DMIC is *not* reachable over the HDA link; it sits
-behind the audio DSP, which only runs with signed firmware (SOF `sof-tgl.ri`,
-Intel production key, IPC3).
+behind the audio DSP, which only runs with signed firmware (SOF `sof-tgl.ri` or
+`sof-cml.ri`, Intel production key, IPC3).
+
+## cAVS 1.8 (Comet Lake) vs cAVS 2.5 (Tiger Lake) Architecture
+Both platforms share the same CavS register architecture (BAR0 HDA controller and BAR4 DSP shim/mailboxes), but have specific architectural differences handled transparently by TGLDmic:
+
+| Feature | Comet Lake (cAVS 1.8) | Tiger Lake (cAVS 2.5) |
+|---|---|---|
+| **PCI Device ID** | `8086:02C8`, `8086:9DC8`, `8086:A348` | `8086:A0C8`, `8086:43C8` |
+| **Intel Production Firmware** | `sof-cml.ri` / `sof-cnl.ri` (SOF v2.2, 557,824 B) | `sof-tgl.ri` (SOF v2.2, 532,480 B) |
+| **DSP Core Mask (`targetCoreMask`)** | `0x0F` (cAVS 1.8 host-managed 4-core mask) | `0x01` (cAVS 2.5 single-core / core 0) |
+| **Input Streams** | 7 input descriptors (`in0`–`in6`) | 9 input descriptors (`in0`–`in8`) |
+| **Dynamic Capture Stream** | Highest available (typically `in6`, tag 7) | Highest available (typically `in8` or `in6`) |
+| **Stream Tag** | `capStreamTag` = `capInIndex` + 1 (override: `tgldmicin=<idx>`) | `capStreamTag` = `capInIndex` + 1 |
+
+* **Firmware Selection**: TGLDmic automatically selects `sof-cml.ri` when running on Comet Lake/Whiskey Lake or `sof-tgl.ri` on Tiger Lake. Can be overridden with `tgldmicfw=cml` or `tgldmicfw=tgl`.
+* **DSP Core Power Gating**: `DspBoot.cpp` sets `ADSPCS.SPA(targetCoreMask())` and polls for `ADSPCS.CPA`, falling back to core 0 if all cores do not report power within timeout.
+* **Dynamic Stream Allocation**: Rather than hardcoding stream indices, `TGLDmic.cpp` inspects the controller's `GCAP` capability, detects all active AppleHDA / HDA-Universal streams, and chooses the highest unallocated input stream for capture.
 
 ## Who owns the HDA controller (varies per macOS version)
 | macOS | Speakers / headset | Notes |
@@ -59,8 +78,14 @@ AppleHDA stack that Apple is dropping). The Core Audio-supported way is a user-s
 TGLDmic.kext  ──(IOUserClient: map 64 KB DMA ring + read DPIB position)──►  TGLDmic.driver (HAL plug-in)  ──►  coreaudiod
 ```
 * The ring buffer the DSP writes into is mapped read-only into the plug-in, so there's no copy in the kernel.
-* The plug-in timestamps from the DMA position and does the 4ch→2ch (or 4ch exposed) mapping and gain.
+* The plug-in timestamps from the DMA position and handles 4-channel routing, blending, and software gain.
 * The same plug-in works on Ventura through Tahoe, whichever driver owns the speakers.
+
+### 4-Channel Microphone Routing & Blend Modes
+Laptops like the ThinkPad X1 Carbon Gen 7 feature a 4-channel 360-degree far-field microphone array (2 facing forward near the webcam, 2 facing 360°/upward). TGLDmic captures all 4 channels (PCM 6, 48 kHz, S32_LE) and provides user-configurable stereo routing via user defaults (`defaults write com.labrouss.TGLDmic ChannelMode <mode>`):
+* **Mode 0 (Default)**: Front mic pair (Ch 0 = Left, Ch 1 = Right). Best for conferencing and video calls facing the screen.
+* **Mode 1**: Ambient / rear mic pair (Ch 2 = Left, Ch 3 = Right). For room audio or ambient capture.
+* **Mode 2**: 4-channel blend: Stereo pair blending `(Ch0 + Ch2) / 2` (Left) and `(Ch1 + Ch3) / 2` (Right). Provides 360-degree coverage across all four physical microphones.
 
 ## Main risks
 0. The controller owner differs per macOS version (see above): stream usage and power

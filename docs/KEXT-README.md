@@ -1,4 +1,4 @@
-# TGLDmic kext package
+# TGLDmic kext package (Tiger Lake & Comet Lake / X1 Carbon Gen 7)
 
 | File | What |
 |---|---|
