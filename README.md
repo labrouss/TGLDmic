@@ -3,6 +3,9 @@
 </p>
 
 <h1 align="center">TGLDmic</h1>
+
+<p align="center"><a href="https://hits.sh/github.com/labrouss/TGLDmic/"><img src="https://hits.sh/github.com/labrouss/TGLDmic.svg?view=today-total&style=flat-square&label=visits" alt="visits"></a></p>
+
 <p align="center"><b>Tiger Lake & Comet Lake microphone driver for macOS</b><br>
 Internal digital microphones (DMIC) of Intel Tiger Lake and Comet Lake / Cannon Lake laptops (including ThinkPad X1 Carbon Gen 7) via the Intel Smart Sound DSP (SOF)</p>
 
