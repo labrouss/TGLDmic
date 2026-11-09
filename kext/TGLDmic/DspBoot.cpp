@@ -12,6 +12,8 @@ extern "C" const unsigned char kSofTglRi[];
 extern "C" const unsigned int kSofTglRiSize;
 extern "C" const unsigned char kSofCmlRi[];
 extern "C" const unsigned int kSofCmlRiSize;
+extern "C" const unsigned char kSofAdlRi[];
+extern "C" const unsigned int kSofAdlRiSize;
 
 #define LOG(fmt, ...) logLine(fmt, ##__VA_ARGS__)
 
@@ -274,12 +276,16 @@ bool TGLDmic::bootDsp() {
             fwData = kSofCmlRi; fwTotalSize = kSofCmlRiSize; fwName = "sof-cml.ri (manual)";
         } else if (strcmp(fwArg, "tgl") == 0) {
             fwData = kSofTglRi; fwTotalSize = kSofTglRiSize; fwName = "sof-tgl.ri (manual)";
+        } else if (strcmp(fwArg, "adl") == 0) {
+            fwData = kSofAdlRi; fwTotalSize = kSofAdlRiSize; fwName = "sof-adl.ri (manual)";
         }
     }
 
     if (!fwData) {
         if (platformFamily == kPlatformCometLake) {
             fwData = kSofCmlRi; fwTotalSize = kSofCmlRiSize; fwName = "sof-cml.ri (cAVS 1.8 Comet Lake)";
+        } else if (platformFamily == kPlatformAlderLake) {
+            fwData = kSofAdlRi; fwTotalSize = kSofAdlRiSize; fwName = "sof-adl.ri (cAVS 2.5 Alder Lake)";
         } else {
             fwData = kSofTglRi; fwTotalSize = kSofTglRiSize; fwName = "sof-tgl.ri (cAVS 2.5 Tiger Lake)";
         }

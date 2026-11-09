@@ -83,6 +83,7 @@ const char *TGLDmic::platformName() const {
     switch (platformFamily) {
         case kPlatformCometLake: return "Comet Lake / Cannon Lake (cAVS 1.8)";
         case kPlatformTigerLake: return "Tiger Lake (cAVS 2.5)";
+        case kPlatformAlderLake: return "Alder Lake (cAVS 2.5)";
         default: return "Unknown";
     }
 }
@@ -117,6 +118,14 @@ IOService *TGLDmic::probe(IOService *provider, SInt32 *score) {
             platformFamily = kPlatformTigerLake;
             break;
 
+        // Alder Lake family (cAVS 2.5 / ACE 1.x)
+        case 0x51C8: // Alder Lake-P Smart Sound DSP (OpenCore spoof)
+        case 0x51CC: // Alder Lake-P/U Smart Sound DSP (native)
+        case 0x51C9: // Alder Lake-M
+        case 0x51CD: // Alder Lake-S
+            platformFamily = kPlatformAlderLake;
+            break;
+
         // Spoofed IDs (e.g. OpenCore spoof for AppleALC)
         case 0x34C8: // Ice Lake-LP spoof
             // Default to Comet Lake if running on Comet Lake/Cannon Lake hardware
@@ -130,11 +139,14 @@ IOService *TGLDmic::probe(IOService *provider, SInt32 *score) {
     // Explicit boot-arg overrides:
     // -tgldmiccml: force Comet Lake / Cannon Lake mode
     // -tgldmictgl: force Tiger Lake mode
+    // -tgldmicadl: force Alder Lake mode
     // -tgldmicforce: attach regardless of PCI ID
     if (bootArg("-tgldmiccml")) {
         platformFamily = kPlatformCometLake;
     } else if (bootArg("-tgldmictgl")) {
         platformFamily = kPlatformTigerLake;
+    } else if (bootArg("-tgldmicadl")) {
+        platformFamily = kPlatformAlderLake;
     }
 
     if (platformFamily == kPlatformUnknown) {

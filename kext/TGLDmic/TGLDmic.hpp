@@ -21,6 +21,7 @@ public:
         kPlatformUnknown   = 0,
         kPlatformTigerLake  = 1, // Intel Tiger Lake LP/H (cAVS 2.5)
         kPlatformCometLake  = 2, // Intel Comet Lake / Cannon Lake / Coffee Lake (cAVS 1.8)
+        kPlatformAlderLake  = 3, // Intel Alder Lake-P/U/M/S (cAVS 2.5 / ACE 1.x)
     };
 
     // ---- Phase 4 service API (called by TGLDmicUserClient; all serialized on the work loop) ----
