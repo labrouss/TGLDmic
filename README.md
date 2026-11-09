@@ -6,15 +6,15 @@
 
 <p align="center"><a href="https://hits.sh/github.com/labrouss/TGLDmic/"><img src="https://hits.sh/github.com/labrouss/TGLDmic.svg?view=today-total&style=flat-square&label=visits" alt="visits"></a></p>
 
-<p align="center"><b>Tiger Lake & Comet Lake microphone driver for macOS</b><br>
-Internal digital microphones (DMIC) of Intel Tiger Lake and Comet Lake / Cannon Lake laptops (including ThinkPad X1 Carbon Gen 7) via the Intel Smart Sound DSP (SOF)</p>
+<p align="center"><b>Alder Lake, Tiger Lake & Comet Lake microphone driver for macOS</b><br>
+Internal digital microphones (DMIC) of Intel Alder Lake (12th-gen), Tiger Lake (11th-gen) and Comet Lake / Cannon Lake laptops via the Intel Smart Sound DSP (SOF)</p>
 
 > [!NOTE]
-> **This fork is adapted for Comet Lake (CML) ThinkPad X1 Carbon Gen 7 (X1C7) from [labrouss/TGLDmic](https://github.com/labrouss/TGLDmic).** It introduces cAVS 1.8 platform support, dynamic core power gating, dual embedded Intel production SOF v2.2 firmware (`sof-cml.ri` & `sof-tgl.ri`), dynamic input stream allocation, and 4-channel microphone routing modes.
+> **This fork adds full Intel Alder Lake (ADL, 12th-gen Core) support to [labrouss/TGLDmic](https://github.com/labrouss/TGLDmic).** It embeds the official Intel-signed Sound Open Firmware `sof-adl.ri` (resolving CSE ROM Error 44 on 12th-gen platforms), matches Alder Lake-P/U/M/S DSP controllers (`0x51CC`, `0x51C8`, `0x51C9`, `0x51CD`), and enables crisp stereo DMIC recording alongside existing Comet Lake and Tiger Lake support.
 
 > Unofficial community project. Not affiliated with or endorsed by Intel, Apple or any laptop vendor.
 
-On modern Intel laptops (Tiger Lake, Comet Lake, Whiskey Lake, etc.) the built-in digital microphones are not wired to the HDA codec but to the
+On modern Intel laptops (Alder Lake, Tiger Lake, Comet Lake, Whiskey Lake, etc.) the built-in digital microphones are not wired to the HDA codec but to the
 Smart Sound DSP (cAVS), so AppleALC cannot make them work and hackintoshes end up without an internal mic.
 TGLDmic boots Intel's signed SOF firmware on that DSP and exposes the mics to macOS as a normal input device,
 **Internal Microphone (TGLDmic)**. It runs next to AppleHDA/AppleALC, which keep speakers and headset.
@@ -25,19 +25,20 @@ TGLDmic boots Intel's signed SOF firmware on that DSP and exposes the mics to ma
 - DSP is powered only while something records (~120 ms start-up)
 - Repeated recording sessions; coexists with AppleHDA/AppleALC
 - Installer package for the Core Audio plug-in that checks the kext version first
-- Dual architecture support: Intel cAVS 2.5 (Tiger Lake) & cAVS 1.8 (Comet Lake / Cannon Lake / Coffee Lake)
+- Multi-architecture support: Intel cAVS 2.5 / ACE 1.x (Alder Lake), cAVS 2.5 (Tiger Lake) & cAVS 1.8 (Comet Lake / Cannon Lake / Coffee Lake)
 
 ## Compatibility
 | | |
 |---|---|
+| Supported (Alder Lake) | Intel Smart Sound DSP `8086:51CC`: Alder Lake **LP / P / U** (12th-gen Core, e.g. **HP Envy x360 13-bf0xxx** i7-1250U)<br>Intel Smart Sound DSP `8086:51C8`: Alder Lake-P (OpenCore spoof ID)<br>Intel Smart Sound DSP `8086:51C9`: Alder Lake-M<br>Intel Smart Sound DSP `8086:51CD`: Alder Lake-S |
 | Supported (Comet Lake / CFL) | Intel Smart Sound DSP `8086:02C8`: Comet Lake **LP** (10th-gen Core, e.g. **Lenovo ThinkPad X1 Carbon Gen 7** i7-10710U / i5-10210U)<br>Intel Smart Sound DSP `8086:9DC8`: Cannon Lake / Whiskey Lake **LP** (e.g. ThinkPad X1 Carbon Gen 7 i7-8565U)<br>Intel Smart Sound DSP `8086:06C8`, `8086:A348`: Comet Lake-H, Coffee Lake-H |
 | Supported (Tiger Lake) | Intel Smart Sound DSP `8086:A0C8`: Tiger Lake **LP** (11th-gen Core, UP3/UP4)<br>Intel Smart Sound DSP `8086:43C8`: Tiger Lake **H** |
-| Tested hardware | **Lenovo ThinkPad X1 Carbon Gen 7** (Comet Lake i7-10710U, 4 PDM mics, ALC285)<br>**HP EliteBook 840 G8** (Tiger Lake i5-1135G7, 4 PDM mics, ALC285) |
+| Tested hardware | **HP Envy x360 13-bf0xxx** (Alder Lake-P i7-1250U, dual PDM mics, ALC245 + dual CS35L41)<br>**Lenovo ThinkPad X1 Carbon Gen 7** (Comet Lake i7-10710U, 4 PDM mics, ALC285)<br>**HP EliteBook 840 G8** (Tiger Lake i5-1135G7, 4 PDM mics, ALC285) |
 | macOS | Ventura, Sonoma, Sequoia, Tahoe tested / supported |
 | Audio driver | Works next to **AppleALC/AppleHDA** or **HDAUniversal** (speakers and headset stay with them) |
 
 > **Device-id spoof:** OpenCore configs usually spoof the audio controller as `34C8` or `9DC8` for AppleALC.
-> TGLDmic matches those spoof IDs too, detects the underlying hardware platform family, and boots the matching Intel-signed SOF firmware (`sof-cml.ri` for Comet Lake or `sof-tgl.ri` for Tiger Lake).
+> TGLDmic matches those spoof IDs too, detects the underlying hardware platform family, and boots the matching Intel-signed SOF firmware (`sof-adl.ri` for Alder Lake, `sof-cml.ri` for Comet Lake, or `sof-tgl.ri` for Tiger Lake).
 
 ## Install
 Download both files from [Releases](../../releases):

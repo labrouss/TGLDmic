@@ -26,6 +26,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tgl", required=False, help="Tiger Lake firmware image")
     parser.add_argument("--cml", required=False, help="Comet Lake / Cannon Lake firmware image")
+    parser.add_argument("--adl", required=False, help="Alder Lake firmware image")
     parser.add_argument("-o", "--output", required=True, help="Output C source file")
     args = parser.parse_args()
 
@@ -37,6 +38,9 @@ def main():
         if args.cml:
             data = open(args.cml, "rb").read()
             write_array(f, "kSofCmlRi", data, args.cml)
+        if args.adl:
+            data = open(args.adl, "rb").read()
+            write_array(f, "kSofAdlRi", data, args.adl)
 
 if __name__ == "__main__":
     main()

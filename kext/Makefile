@@ -3,6 +3,7 @@ SDK     ?= $(CURDIR)/../MacKernelSDK
 # Intel production-signed SOF firmwares (the CSE rejects community-signed builds: ROM error 44)
 FW_TGL   = ../firmware/intel/sof-tgl.ri
 FW_CML   = ../firmware/intel/sof-cml.ri
+FW_ADL   = ../firmware/intel/sof-adl.ri
 OBJS     = build/TGLDmic.o build/DspBoot.o build/Capture.o build/TGLDmicUserClient.o build/Firmware.o build/kmod_info.o
 OUT      = build/TGLDmic.kext
 ARCH     = -arch x86_64 -mmacosx-version-min=10.15
@@ -19,9 +20,9 @@ all: $(OUT)
 build/%.o: TGLDmic/%.cpp TGLDmic/*.hpp
 	@mkdir -p build
 	clang++ $(CXXFLAGS) -c $< -o $@
-build/Firmware.c: $(FW_TGL) $(FW_CML) ../tools/gen-fw.py
+build/Firmware.c: $(FW_TGL) $(FW_CML) $(FW_ADL) ../tools/gen-fw.py
 	@mkdir -p build
-	python3 ../tools/gen-fw.py --tgl $(FW_TGL) --cml $(FW_CML) -o $@
+	python3 ../tools/gen-fw.py --tgl $(FW_TGL) --cml $(FW_CML) --adl $(FW_ADL) -o $@
 build/Firmware.o: build/Firmware.c
 	clang $(CFLAGS) -c $< -o $@
 build/kmod_info.o: TGLDmic/kmod_info.c
