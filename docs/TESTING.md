@@ -61,6 +61,23 @@ With `-tgldmic`, test the kext directly before installing the plug-in:
 
 Expect `start: 0x0`, about 48000 frames/s and the levels above.
 
+## Physical validation: Dell Latitude 3420
+Run on 2026-11-13 with a Tiger Lake Core i5-1135G7 and Intel SST controller `8086:A0C8`,
+under macOS 26.7.3 (build 25G342). OpenCore reports the SMBIOS model as `MacBookPro16,2`.
+
+| Check | Result |
+|---|---|
+| `make -C hal clean all` | Passed |
+| `tgldmic-probe 3` (no WAV output file) | `start: 0x0`; 144,000 frames in 3.02 s (47,673 frames/s) |
+| Raw channel levels during the 3-second room capture | Ch 0/1: RMS -54.0 dBFS, peak -31.1 dBFS; ch 2/3: RMS -37.3 dBFS, peak -12.0 dBFS |
+| Core Audio data source | `imic`; control class `dsrc`; current item `imic`; model name `Internal Microphone` |
+| `system_profiler SPAudioDataType` | TGLDmic is the default input; input source is `Internal Microphone` |
+| Siri speech input | Passed: Siri recognized a spoken phrase after TGLDmic was set as the default input |
+
+The probe computed levels in memory and did not write an audio recording. The run verified a live
+signal from the physical microphone array but did not include a spoken intelligibility test; Siri
+recognition was confirmed in a separate follow-up test.
+
 ## Comparing two setups (OS, EFI)
 The first boot attempt saves the controller state left by the HDA driver as `PreBootRegs`
 (PCI config space, HDA globals, PP/SPB/ML capabilities, Intel vendor registers):

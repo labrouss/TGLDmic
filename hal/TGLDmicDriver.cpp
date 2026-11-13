@@ -9,6 +9,7 @@
 // one input stream, one input volume control.
 
 #include <CoreAudio/AudioServerPlugIn.h>
+#include <CoreAudio/AudioHardware.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <mach/mach_time.h>
@@ -30,11 +31,13 @@ enum {
     kObjectID_Device = 2,
     kObjectID_Stream_Input = 3,
     kObjectID_Volume_Input_Master = 4,
+    kObjectID_DataSource_Input_Master = 5,
 };
 
 static const AudioObjectPropertyElement kElementMain = 0;   // kAudioObjectPropertyElementMain (macOS 12 SDK name)
 static const Float64 kSampleRate = 48000.0;
 static const UInt32 kChannels = 2;                       // exposed to Core Audio
+static const UInt32 kDataSourceInternalMic = 'imic';
 static const UInt32 kRingFrames = 0x10000 / 16;          // 4096 frames in the kernel ring
 static const UInt32 kZeroTimeStampPeriod = kRingFrames;
 static const UInt32 kSafetyOffset = 256;
@@ -306,6 +309,7 @@ static Boolean HasPropertyImpl(AudioServerPlugInDriverRef inDriver, AudioObjectI
         switch (a->mSelector) {
         case kAudioObjectPropertyBaseClass: case kAudioObjectPropertyClass: case kAudioObjectPropertyOwner:
         case kAudioObjectPropertyName: case kAudioObjectPropertyManufacturer: case kAudioObjectPropertyOwnedObjects:
+        case kAudioObjectPropertyModelName:
         case kAudioDevicePropertyDeviceUID: case kAudioDevicePropertyModelUID: case kAudioDevicePropertyTransportType:
         case kAudioDevicePropertyRelatedDevices: case kAudioDevicePropertyClockDomain: case kAudioDevicePropertyDeviceIsAlive:
         case kAudioDevicePropertyDeviceIsRunning: case kAudioObjectPropertyControlList:
@@ -339,6 +343,16 @@ static Boolean HasPropertyImpl(AudioServerPlugInDriverRef inDriver, AudioObjectI
             return true;
         }
         return false;
+    case kObjectID_DataSource_Input_Master:
+        switch (a->mSelector) {
+        case kAudioObjectPropertyBaseClass: case kAudioObjectPropertyClass: case kAudioObjectPropertyOwner:
+        case kAudioObjectPropertyOwnedObjects: case kAudioControlPropertyScope: case kAudioControlPropertyElement:
+        case kAudioSelectorControlPropertyCurrentItem: case kAudioSelectorControlPropertyAvailableItems:
+        case kAudioSelectorControlPropertyItemName: case kAudioDevicePropertyDataSource:
+        case kAudioDevicePropertyDataSources: case kAudioDevicePropertyDataSourceNameForIDCFString:
+            return true;
+        }
+        return false;
     }
     return false;
 }
@@ -368,17 +382,20 @@ static OSStatus GetPropertyDataSizeImpl(AudioServerPlugInDriverRef inDriver, Aud
     case kAudioObjectPropertyOwner: case kAudioPlugInPropertyTranslateUIDToDevice:
         *out = sizeof(AudioObjectID); return 0;
     case kAudioObjectPropertyName: case kAudioObjectPropertyManufacturer: case kAudioDevicePropertyDeviceUID:
-    case kAudioDevicePropertyModelUID: case kAudioPlugInPropertyResourceBundle:
+    case kAudioObjectPropertyModelName: case kAudioDevicePropertyModelUID: case kAudioPlugInPropertyResourceBundle:
         *out = sizeof(CFStringRef); return 0;
+    case kAudioDevicePropertyDataSourceNameForIDCFString:
+        *out = sizeof(AudioValueTranslation); return 0;
     case kAudioObjectPropertyOwnedObjects:
-        *out = (obj == kObjectID_PlugIn ? 1 : (obj == kObjectID_Device && a->mScope != kAudioObjectPropertyScopeOutput) ? 2 : 0)
+        *out = (obj == kObjectID_PlugIn ? 1 : (obj == kObjectID_Device && a->mScope != kAudioObjectPropertyScopeOutput) ? 3 : 0)
                * sizeof(AudioObjectID); return 0;
     case kAudioPlugInPropertyDeviceList: case kAudioDevicePropertyRelatedDevices:
         *out = sizeof(AudioObjectID); return 0;
     case kAudioDevicePropertyStreams:
         *out = (a->mScope == kAudioObjectPropertyScopeOutput ? 0 : 1) * sizeof(AudioObjectID); return 0;
     case kAudioObjectPropertyControlList:
-        *out = sizeof(AudioObjectID); return 0;
+        *out = (obj == kObjectID_Device && a->mScope != kAudioObjectPropertyScopeOutput ? 2 : 0)
+               * sizeof(AudioObjectID); return 0;
     case kAudioDevicePropertyNominalSampleRate:
         *out = sizeof(Float64); return 0;
     case kAudioDevicePropertyAvailableNominalSampleRates:
@@ -396,6 +413,10 @@ static OSStatus GetPropertyDataSizeImpl(AudioServerPlugInDriverRef inDriver, Aud
         *out = sizeof(Float32); return 0;
     case kAudioLevelControlPropertyDecibelRange:
         *out = sizeof(AudioValueRange); return 0;
+    case kAudioSelectorControlPropertyCurrentItem: case kAudioSelectorControlPropertyAvailableItems:
+        *out = sizeof(UInt32); return 0;
+    case kAudioSelectorControlPropertyItemName:
+        *out = sizeof(CFStringRef); return 0;
     default:
         *out = sizeof(UInt32); return 0;    // all remaining properties are UInt32
     }
@@ -437,6 +458,7 @@ static OSStatus GetPropertyDataImpl(AudioServerPlugInDriverRef inDriver, AudioOb
         case kAudioObjectPropertyOwner: NEED(sizeof(AudioObjectID)); *ids = kObjectID_PlugIn; return 0;
         case kAudioObjectPropertyName: NEED(sizeof(CFStringRef)); *str = CFSTR(kDevice_Name); return 0;
         case kAudioObjectPropertyManufacturer: NEED(sizeof(CFStringRef)); *str = CFSTR(kDevice_Manufacturer); return 0;
+        case kAudioObjectPropertyModelName: NEED(sizeof(CFStringRef)); *str = CFSTR("Internal Microphone"); return 0;
         case kAudioDevicePropertyDeviceUID: NEED(sizeof(CFStringRef)); *str = CFSTR(kDevice_UID); return 0;
         case kAudioDevicePropertyModelUID: NEED(sizeof(CFStringRef)); *str = CFSTR(kDevice_ModelUID); return 0;
         case kAudioObjectPropertyOwnedObjects: {
@@ -444,6 +466,7 @@ static OSStatus GetPropertyDataImpl(AudioServerPlugInDriverRef inDriver, AudioOb
             if (a->mScope != kAudioObjectPropertyScopeOutput) {
                 if (inDataSize >= (n + 1) * sizeof(AudioObjectID)) ids[n++] = kObjectID_Stream_Input;
                 if (inDataSize >= (n + 1) * sizeof(AudioObjectID)) ids[n++] = kObjectID_Volume_Input_Master;
+                if (inDataSize >= (n + 1) * sizeof(AudioObjectID)) ids[n++] = kObjectID_DataSource_Input_Master;
             }
             *outDataSize = n * sizeof(AudioObjectID); return 0;
         }
@@ -452,8 +475,9 @@ static OSStatus GetPropertyDataImpl(AudioServerPlugInDriverRef inDriver, AudioOb
             if (*outDataSize) ids[0] = kObjectID_Stream_Input;
             return 0;
         case kAudioObjectPropertyControlList:
-            *outDataSize = inDataSize >= sizeof(AudioObjectID) ? sizeof(AudioObjectID) : 0;
-            if (*outDataSize) ids[0] = kObjectID_Volume_Input_Master;
+            *outDataSize = a->mScope != kAudioObjectPropertyScopeOutput && inDataSize >= 2 * sizeof(AudioObjectID)
+                         ? 2 * sizeof(AudioObjectID) : 0;
+            if (*outDataSize) { ids[0] = kObjectID_Volume_Input_Master; ids[1] = kObjectID_DataSource_Input_Master; }
             return 0;
         case kAudioDevicePropertyTransportType: NEED(sizeof(UInt32)); *u32 = kAudioDeviceTransportTypeBuiltIn; return 0;
         case kAudioDevicePropertyRelatedDevices:
@@ -537,6 +561,35 @@ static OSStatus GetPropertyDataImpl(AudioServerPlugInDriverRef inDriver, AudioOb
             NEED(sizeof(Float32)); auto v = static_cast<Float32 *>(outData);
             Float32 db = *v < kVolumeMinDB ? kVolumeMinDB : *v > kVolumeMaxDB ? kVolumeMaxDB : *v;
             *v = dbToScalar(db); return 0;
+        }
+        }
+    } else if (obj == kObjectID_DataSource_Input_Master) {
+        switch (a->mSelector) {
+        case kAudioObjectPropertyBaseClass: NEED(sizeof(AudioClassID)); *u32 = kAudioSelectorControlClassID; return 0;
+        case kAudioObjectPropertyClass: NEED(sizeof(AudioClassID)); *u32 = kAudioDataSourceControlClassID; return 0;
+        case kAudioObjectPropertyOwner: NEED(sizeof(AudioObjectID)); *ids = kObjectID_Device; return 0;
+        case kAudioObjectPropertyOwnedObjects: *outDataSize = 0; return 0;
+        case kAudioControlPropertyScope: NEED(sizeof(AudioObjectPropertyScope)); *u32 = kAudioObjectPropertyScopeInput; return 0;
+        case kAudioControlPropertyElement: NEED(sizeof(AudioObjectPropertyElement)); *u32 = kElementMain; return 0;
+        case kAudioSelectorControlPropertyCurrentItem: NEED(sizeof(UInt32)); *u32 = kDataSourceInternalMic; return 0;
+        case kAudioSelectorControlPropertyAvailableItems: NEED(sizeof(UInt32)); *u32 = kDataSourceInternalMic; return 0;
+        case kAudioSelectorControlPropertyItemName:
+            NEED(sizeof(CFStringRef));
+            if (qSize != sizeof(UInt32) || !qData || *static_cast<const UInt32 *>(qData) != kDataSourceInternalMic)
+                return kAudioHardwareIllegalOperationError;
+            *str = CFSTR("Internal Microphone"); return 0;
+        case kAudioDevicePropertyDataSource: case kAudioDevicePropertyDataSources:
+            NEED(sizeof(UInt32)); *u32 = kDataSourceInternalMic; return 0;
+        case kAudioDevicePropertyDataSourceNameForIDCFString: {
+            NEED(sizeof(AudioValueTranslation));
+            auto translation = static_cast<AudioValueTranslation *>(outData);
+            if (!translation->mInputData || translation->mInputDataSize < sizeof(UInt32) ||
+                *static_cast<const UInt32 *>(translation->mInputData) != kDataSourceInternalMic ||
+                !translation->mOutputData || translation->mOutputDataSize < sizeof(CFStringRef))
+                return kAudioHardwareIllegalOperationError;
+            *static_cast<CFStringRef *>(translation->mOutputData) = CFStringCreateCopy(nullptr, CFSTR("Internal Microphone"));
+            translation->mOutputDataSize = sizeof(CFStringRef);
+            return 0;
         }
         }
     }
